@@ -1,9 +1,10 @@
 # Release report — HCS Foundry 0.1.0
 
 **Date:** 2026-11-01
-**Commit:** `88f663e`
+**Code commit:** `d8ea69a` (this report is a later documentation commit)
 **Repository:** <https://github.com/timfromhcs/hcs-foundry> (private)
 **Branch:** `main`
+**CI:** all jobs green — run [`41339363309`](https://github.com/timfromhcs/hcs-foundry/actions/runs/41339363309)
 
 ## 1. Gate status
 
@@ -16,8 +17,24 @@
 | E | Training/benchmark | **Passed (honest)** | real CPU smoke step; fine-tuning reported unsupported |
 | F | Upgrade loop | **Passed** | candidate evaluated, **correctly rejected** by the gate |
 | G | Local release | **Passed** | 98 + 7 + 6 tests green, clean build |
-| H | GitHub release | **Passed** | pushed to `timfromhcs/hcs-foundry`, default branch `main` |
+| H | GitHub release | **Passed** | pushed to `timfromhcs/hcs-foundry`, default branch `main`, CI green on a clean checkout |
 | I | Vercel | **Blocked** | no Vercel credentials or CLI in the environment |
+
+## 1.1 CI on a clean checkout
+
+The first CI run exposed a real packaging bug: an unanchored `data/` rule in
+`.gitignore` excluded `server/foundry/data/` from the repository, so a fresh clone
+could not import the data pipeline. The rule was root-anchored, the package was
+committed, and the next run passed:
+
+```
+Backend tests                     success   (98 tests)
+Frontend build and unit tests     success   (tsc, vitest, build)
+End-to-end (Playwright)           success   (6 tests against a locally started service)
+```
+
+This is the clean-checkout test required by the release gate, executed by GitHub on
+Ubuntu rather than on the development machine.
 
 ## 2. Test results
 
