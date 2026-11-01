@@ -1,0 +1,43 @@
+{
+  "info": {
+    "id": "ses_open_1",
+    "title": "Debug the build"
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1760000000000
+        }
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "Why does the build fail with ENOENT?"
+        }
+      ]
+    },
+    {
+      "info": {
+        "role": "assistant",
+        "time": {
+          "created": 1760000005000
+        }
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "The output path is missing."
+        },
+        {
+          "type": "tool",
+          "tool": "bash",
+          "state": {
+            "cmd": "ls dist"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+﻿
+Running 6 tests using 1 worker
+
+  Ô£ô  1 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:43:1 ÔÇ║ every route renders without console errors (1.5s)
+  Ô£ô  2 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:61:1 ÔÇ║ keyboard navigation reaches the skip link and the nav (392ms)
+  Ô£ô  3 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:70:1 ÔÇ║ mobile layout has no horizontal overflow and exposes the drawer (875ms)
+  Ô£ô  4 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:84:1 ÔÇ║ reduced motion is respected (415ms)
+  Ô£ô  5 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:96:1 ÔÇ║ language switch translates the interface (410ms)
+  Ô£ô  6 [chromium] ÔÇ║ tests\e2e\foundry.spec.ts:104:1 ÔÇ║ light theme applies and persists (571ms)
+
+  6 passed (5.0s)
+

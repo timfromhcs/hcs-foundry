@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "note": "Example shape only. The real MACHINE_PROFILE.json is generated locally by `python -m foundry.cli scan` and is git-ignored because it describes a specific machine.",
+  "os": {
+    "name": "Windows 11 Pro",
+    "version": "10.0.26200",
+    "arch": "x64"
+  },
+  "cpu": {
+    "vendor": "AuthenticAMD",
+    "model": "AMD Ryzen 7 7735HS with Radeon Graphics",
+    "physical_cores": 8,
+    "logical_cores": 16
+  },
+  "memory": {
+    "system_ram_total_bytes": 20748000000,
+    "system_ram_available_bytes": 7603024000
+  },
+  "gpu": {
+    "devices": [
+      {
+        "name": "AMD Radeon(TM) Graphics",
+        "vendor": "AMD",
+        "dedicated_vram_bytes": 0,
+        "shared_gpu_memory_bytes": 4293918720,
+        "unified_memory": true,
+        "backends": { "vulkan": "verified", "cuda": "unsupported", "rocm": "unknown" }
+      }
+    ]
+  }
+}

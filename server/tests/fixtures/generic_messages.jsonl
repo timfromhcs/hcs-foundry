@@ -1,0 +1,4 @@
+{"role": "user", "content": "Summarize the trade-offs of KV cache quantization."}
+{"role": "assistant", "content": "It reduces memory at the cost of some long-context precision."}
+{"role": "user", "content": "Now answer in German: was ist ein Quantil?"}
+{"role": "assistant", "content": "Ein Quantil teilt eine Verteilung in Abschnitte."}

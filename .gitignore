@@ -1,0 +1,91 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# --- Model weights and large artifacts ---
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.model
+*.ggml
+models/
+model-cache/
+model-cache/**
+datasets/
+dataset-store/
+raw-sessions/
+imports/
+training-runs/
+checkpoints/
+artifacts/private/
+artifacts/*
+!artifacts/.gitkeep
+exports/
+benchmark-assets/
+
+# --- Machine-specific audit output ---
+docs/audit/MACHINE_PROFILE.json
+docs/audit/machine-profile*.json
+*.machine.json
+
+# --- Logs and runtime state ---
+logs/
+*.log
+server-logs/
+foundry.db
+foundry.db-journal
+foundry.db-wal
+foundry.db-shm
+data/
+runtime-state/
+.pairing
+*.pid
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# --- Node ---
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+*.local
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Temp ---
+tmp/
+.cache/
+*.tmp
+.playwright-mcp/
+web/test-results/
+web/playwright-report/
+web/blob-report/

@@ -1,0 +1,4 @@
+{"role": "user", "content": "Handle a truncated file safely."}
+{"role": "assistant", "content": "I will skip malformed lines."}
+{"role": "user", "content": 
+{"role": "assistant", "content": "Done."}
