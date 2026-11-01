@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HCS Foundry — local AI model lab</title>
+<meta name="description" content="HCS Foundry is a local-first AI model lab: pull GGUF models, run Vulkan inference, clean agent logs, fine-tune LoRA/INT4, export and quantize GGUF, benchmark coding and agentic tasks." />
+<meta property="og:title" content="HCS Foundry — local AI model lab" />
+<meta property="og:description" content="Local-first model lab: Hub, Vulkan inference, LoRA/INT4 training, GGUF export and quantization, coding and agentic benchmarks." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="assets/hub.png" />
+<meta name="theme-color" content="#0a0c0f" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d10'/%3E%3Cpath d='M9 22V10h3v5h8v-5h3v12h-3v-5h-8v5z' fill='%235eead4'/%3E%3C/svg%3E" />
+<style>
+:root{
+  --bg:#080a0d;--surface:#0f1318;--surface-2:#151b22;--border:#222a34;--border-2:#303b48;
+  --text:#e9eff6;--text-2:#a5b3c2;--text-3:#75828f;--accent:#5eead4;--accent-2:#8b8cf9;
+  --ok:#3ddc97;--warn:#f5c451;--danger:#ff6b6b;--radius:16px;--max:1180px;
+  --font:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace;
+}
+[data-theme="light"]{
+  --bg:#f6f8fb;--surface:#fff;--surface-2:#f1f4f8;--border:#e0e6ee;--border-2:#c9d2dc;
+  --text:#0e141b;--text-2:#46535f;--text-3:#68757f;--accent:#0e9c88;--accent-2:#5b5bd6;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.6;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(900px 520px at 10% -10%,rgba(94,234,212,.10),transparent 60%),
+             radial-gradient(760px 520px at 100% 0%,rgba(139,140,249,.10),transparent 55%)}
+[data-theme="light"] body::before{background:radial-gradient(900px 520px at 10% -10%,rgba(14,156,136,.09),transparent 60%),radial-gradient(760px 520px at 100% 0%,rgba(91,91,214,.07),transparent 55%)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+img{max-width:100%;display:block}
+h1,h2,h3{line-height:1.15;letter-spacing:-.02em;margin:0}
+h1{font-size:clamp(38px,6vw,68px);font-weight:760}
+h2{font-size:clamp(26px,3.4vw,40px);font-weight:720}
+h3{font-size:18px;font-weight:640}
+p{margin:0}
+code,pre{font-family:var(--mono)}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 22px;position:relative;z-index:1}
+.muted{color:var(--text-2)}
+.dim{color:var(--text-3)}
+.small{font-size:14px}
+.tiny{font-size:12px}
+.center{text-align:center}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.between{justify-content:space-between}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:980px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+/* nav */
+header{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(8,10,13,.72);border-bottom:1px solid var(--border)}
+[data-theme="light"] header{background:rgba(246,248,251,.82)}
+.nav{display:flex;align-items:center;gap:18px;height:66px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text)}
+.mark{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(140deg,var(--accent),var(--accent-2));color:#04231f;font-weight:800}
+.nav-links{display:flex;gap:18px;margin-left:10px}
+.nav-links a{color:var(--text-2);font-size:14px;font-weight:520}
+.nav-links a:hover{color:var(--text);text-decoration:none}
+.nav-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+@media(max-width:900px){.nav-links{display:none}}
+
+.btn{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:10px;border:1px solid var(--border-2);background:var(--surface-2);color:var(--text);font:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:transform .16s,border-color .16s,background .16s}
+.btn:hover{border-color:var(--accent);text-decoration:none}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(120deg,var(--accent),#7fe6d8);color:#04231f;border-color:transparent;box-shadow:0 12px 30px rgba(94,234,212,.22)}
+.btn.ghost{background:transparent}
+.btn.sm{height:34px;padding:0 12px;font-size:13px}
+.icon-btn{width:38px;height:38px;padding:0;justify-content:center}
+
+/* hero */
+.hero{padding:78px 0 40px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid rgba(94,234,212,.3);background:rgba(94,234,212,.08);color:var(--accent);border-radius:999px;font-size:12.5px;font-weight:600;letter-spacing:.02em}
+.hero p.lead{margin-top:20px;font-size:clamp(17px,2vw,21px);color:var(--text-2);max-width:760px}
+.hero .cta{margin-top:28px;display:flex;gap:12px;flex-wrap:wrap}
+.hero-meta{margin-top:22px;display:flex;gap:18px;flex-wrap:wrap;color:var(--text-3);font-size:13px}
+.hero-meta b{color:var(--text-2)}
+.hero-shot{margin-top:44px;border:1px solid var(--border);border-radius:20px;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.45);background:var(--surface)}
+[data-theme="light"] .hero-shot{box-shadow:0 30px 70px rgba(20,30,45,.14)}
+.hero-shot img{width:100%}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:44px 0}
+.stat{background:var(--surface);padding:20px}
+.stat b{display:block;font-size:26px;letter-spacing:-.02em}
+.stat span{font-size:12.5px;color:var(--text-3)}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+/* sections */
+section{padding:64px 0}
+.section-head{max-width:720px;margin-bottom:30px}
+.section-head p{margin-top:12px;color:var(--text-2);font-size:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;transition:border-color .16s,transform .16s}
+.card:hover{border-color:var(--border-2);transform:translateY(-2px)}
+.card .ico{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(140deg,rgba(94,234,212,.16),rgba(139,140,249,.12));color:var(--accent);margin-bottom:14px;font-size:17px}
+.card p{margin-top:8px;color:var(--text-2);font-size:14px}
+.card .tag{display:inline-block;margin-top:12px;font-size:11px;color:var(--text-3);border:1px solid var(--border);border-radius:999px;padding:2px 8px}
+
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:8px}
+.pipe .step{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center;font-size:12.5px;color:var(--text-2)}
+.pipe .step b{display:block;color:var(--text);font-size:13px;margin-bottom:3px}
+@media(max-width:900px){.pipe{grid-template-columns:repeat(2,1fr)}}
+
+/* table */
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 16px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px solid var(--border);color:var(--text-2)}
+tr:last-child td{border-bottom:none}
+td b{color:var(--text)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* gallery */
+.gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.gallery figure{margin:0;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface);cursor:zoom-in}
+.gallery img{width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top}
+.gallery figcaption{padding:10px 12px;font-size:12.5px;color:var(--text-3);border-top:1px solid var(--border)}
+@media(max-width:900px){.gallery{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.gallery{grid-template-columns:1fr}}
+
+/* code */
+.code{position:relative;background:#07090c;border:1px solid var(--border);border-radius:12px;padding:16px 18px;overflow:auto;color:#cfe3dc;font-size:13px;line-height:1.7}
+[data-theme="light"] .code{background:#0d1218;color:#d7e6e0}
+.code .c{color:#6f8291}
+.code .k{color:#7fe6d8}
+.code .s{color:#f5c451}
+.copy{position:absolute;top:8px;right:8px;font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #2a3440;background:#121820;color:#9fb0bd;cursor:pointer}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tab{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-3);font-size:12.5px;cursor:pointer}
+.tab.active{color:var(--text);border-color:var(--accent);background:rgba(94,234,212,.08)}
+
+/* callout */
+.callout{display:flex;gap:14px;padding:18px 20px;border-radius:14px;border:1px solid var(--border);background:var(--surface-2)}
+.callout.warn{border-color:rgba(245,196,81,.35);background:rgba(245,196,81,.06)}
+.callout.ok{border-color:rgba(61,220,151,.35);background:rgba(61,220,151,.06)}
+.callout b{color:var(--text)}
+
+/* footer */
+footer{border-top:1px solid var(--border);padding:38px 0;color:var(--text-3);font-size:13px}
+footer .row{gap:20px}
+
+/* lightbox */
+.lightbox{position:fixed;inset:0;background:rgba(3,5,8,.88);display:none;place-items:center;z-index:100;padding:24px}
+.lightbox.open{display:grid}
+.lightbox img{max-width:min(1400px,100%);max-height:92vh;border-radius:12px;border:1px solid var(--border-2)}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#top"><span class="mark">H</span> HCS Foundry</a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#training">Training</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#limits">Limits</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="btn ghost sm" href="https://github.com/timfromhcs/hcs-foundry" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn primary sm" href="https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe">Download .exe</a>
+      <button class="btn ghost sm icon-btn" id="theme" aria-label="Toggle theme">◐</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <span class="eyebrow">● v4.0.0 · local-first · MIT</span>
+    <h1 style="margin-top:22px">Your local AI model lab.<br><span style="color:var(--accent)">Built to learn, tested to improve.</span></h1>
+    <p class="lead">Pull GGUF models from Hugging Face, run them on Vulkan, clean your own agent logs, fine-tune LoRA or INT4, export and quantize GGUF, convert dense models to MoE, and benchmark coding and agentic tasks — all on one machine.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe">Download for Windows</a>
+      <a class="btn" href="https://github.com/timfromhcs/hcs-foundry" target="_blank" rel="noopener">View source</a>
+      <a class="btn ghost" href="#quickstart">Run from source</a>
+    </div>
+    <div class="hero-meta">
+      <span><b>No telemetry</b> · no cloud fallback</span>
+      <span><b>Single-file exe</b> · API + UI bundled</span>
+      <span><b>165 tests</b> · CI on a clean checkout</span>
+    </div>
+    <div class="hero-shot"><img src="assets/hub.png" alt="HCS Foundry Model Hub" loading="eager" /></div>
+
+    <div class="stats">
+      <div class="stat"><b>2.1×</b><span>Vulkan vs CPU (measured)</span></div>
+      <div class="stat"><b>113 tok/s</b><span>after GGUF export + Q4_K_M</span></div>
+      <div class="stat"><b>196</b><span>layers INT4-quantized in training</span></div>
+      <div class="stat"><b>75</b><span>records cleaned from real agent logs</span></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Everything in one local workbench</h2>
+        <p>Twelve connected surfaces instead of a dozen disconnected scripts. Each one records what it did and refuses what the machine cannot do.</p>
+      </div>
+      <div class="grid g3">
+        <div class="card reveal"><div class="ico">◎</div><h3>Model Hub</h3><p>Search Hugging Face, inspect files with LFS hashes, pull with or without a token. Resumable, hash-verified, cancellable.</p><span class="tag">anonymous + token</span></div>
+        <div class="card reveal"><div class="ico">▣</div><h3>GGUF library</h3><p>Real header metadata, parameter counts, KV bytes/token and honest fit estimates against the live memory budget.</p><span class="tag">no fake VRAM</span></div>
+        <div class="card reveal"><div class="ico">⚡</div><h3>Vulkan inference</h3><p>Supervised <code>llama-server</code>, streaming, cancellation, metrics, auto-tuned GPU layers per model.</p><span class="tag">2.1× measured</span></div>
+        <div class="card reveal"><div class="ico">⛁</div><h3>Data Studio</h3><p>Five session adapters, consent gate, redaction, exact + near dedupe, leakage-safe splits, freeze and export.</p><span class="tag">auditable</span></div>
+        <div class="card reveal"><div class="ico">✎</div><h3>Identity Maker</h3><p>One prompt becomes an editable identity card and a small synthetic dataset. Facts and proposals stay separate.</p><span class="tag">synthetic, labelled</span></div>
+        <div class="card reveal"><div class="ico">▤</div><h3>Training Lab</h3><p>SFT, DPO, distillation and INT4/QLoRA. OpenEval during training, auto LR/stop decisions, best checkpoint.</p><span class="tag">real optimisation</span></div>
+        <div class="card reveal"><div class="ico">◈</div><h3>GGUF out + quantize</h3><p>Merge the adapter, convert to GGUF, quantize to Q2–Q8, verify by loading and answering.</p><span class="tag">measured sizes</span></div>
+        <div class="card reveal"><div class="ico">⌘</div><h3>MoEfication</h3><p>Clone each FFN into experts, add a top-k router, forward-check the result, refuse impossible sizes.</p><span class="tag">real conversion</span></div>
+        <div class="card reveal"><div class="ico">▥</div><h3>Benchmarks</h3><p>Instruction adherence, executed codegen, repo-fix, agentic tasks and a SWE-bench-format adapter — in venvs.</p><span class="tag">deterministic oracles</span></div>
+        <div class="card reveal"><div class="ico">↻</div><h3>Upgrade Lab</h3><p>Failure taxonomy → candidate → re-evaluation → holdout check → human gate → rollback.</p><span class="tag">no self-promotion</span></div>
+        <div class="card reveal"><div class="ico">⌗</div><h3>Agent workspace</h3><p>Visible plans, typed allowlisted tools, approval queue and a bounded repair loop. No unrestricted shell.</p><span class="tag">supervised</span></div>
+        <div class="card reveal"><div class="ico">⚙</div><h3>CLI + API</h3><p>14 command groups, <code>--json</code> everywhere, and a loopback-only API with pairing, Origin checks and path allowlists.</p><span class="tag">scriptable</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pipeline" style="background:var(--surface);border-block:1px solid var(--border)">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>One pipeline, from logs to a quantized model</h2>
+        <p>Every stage writes a checkpoint and a report. A stage that cannot run is skipped with the exact reason.</p>
+      </div>
+      <div class="pipe reveal">
+        <div class="step"><b>Pull</b>HF files</div>
+        <div class="step"><b>Clean</b>logs + redact</div>
+        <div class="step"><b>Train</b>SFT / INT4</div>
+        <div class="step"><b>Eval</b>OpenEval</div>
+        <div class="step"><b>Merge</b>adapter</div>
+        <div class="step"><b>GGUF</b>export + quant</div>
+        <div class="step"><b>Report</b>JSON + MD</div>
+      </div>
+      <div class="grid g2" style="margin-top:22px">
+        <div class="card reveal"><h3>Unified auto trainer</h3><p>Decides between fp32 SFT and streaming INT4 from model size, free RAM and the measured playbook, then runs the whole chain. No configuration guesswork.</p></div>
+        <div class="card reveal"><h3>Full log cleanup</h3><p>Discovers Claude Code, Codex, Antigravity and OpenCode sessions, redacts secrets, filters low-quality records, freezes with a holdout and writes a quarantine copy. Originals are never modified.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="benchmarks">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Numbers from this machine, not a leaderboard</h2>
+        <p>AMD Ryzen 7 7735HS · Radeon 680M (unified memory, 0 B dedicated VRAM) · 19.8 GiB visible RAM · Vulkan 1.4.357.</p>
+      </div>
+      <div class="table-wrap reveal">
+        <table>
+          <thead><tr><th>Measurement</th><th>Result</th><th class="num">Context</th></tr></thead>
+          <tbody>
+            <tr><td><b>GGUF export</b></td><td>1.41 GiB in 209 s</td><td class="num">0.6B, F16</td></tr>
+            <tr><td><b>Quantize Q4_K_M</b></td><td>462 MiB, ratio 0.321, 17 s</td><td class="num">from F16</td></tr>
+            <tr><td><b>Inference after export</b></td><td>113.5 tok/s, TTFT 0.79 s</td><td class="num">Q4_K_M</td></tr>
+            <tr><td><b>Vulkan sweep</b></td><td>51.4 → 107.8 tok/s (2.1×)</td><td class="num">ngl 0 → 99</td></tr>
+            <tr><td><b>Auto SFT</b></td><td>eval 4.344 → 4.233</td><td class="num">6 steps</td></tr>
+            <tr><td><b>INT4 SFT</b></td><td>loss 5.72 → 4.89</td><td class="num">196 layers</td></tr>
+            <tr><td><b>4B Q4_K_M</b></td><td>loads and answers</td><td class="num">ctx 512, Vulkan</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn reveal" style="margin-top:18px">
+        <div><b>Honest limits.</b> A full 4B/8B fine-tune is refused on this hardware: the 4B model needs ~17.4 GB in fp32 against ~5.6 GB free. Vulkan accelerates inference, not training. Official SWE-bench assets are not bundled.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="training" style="background:var(--surface);border-block:1px solid var(--border)">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Training that tells the truth</h2>
+        <p>A job is only called “trained” after an optimisation run that produced checkpoints and a finite loss. Everything else is labelled as what it is.</p>
+      </div>
+      <div class="grid g4">
+        <div class="card reveal"><h3>SFT / LoRA</h3><p>transformers + PEFT, architecture-aware targets, live loss, checkpoints, resume.</p></div>
+        <div class="card reveal"><h3>INT4 / QLoRA</h3><p>Group-wise 4-bit packing, dequantized per layer, LoRA in fp32. No bitsandbytes, works on CPU.</p></div>
+        <div class="card reveal"><h3>DPO</h3><p>Synthetic preference pairs with an adapter-disabled reference. One model in memory.</p></div>
+        <div class="card reveal"><h3>Distillation</h3><p>A local or gateway teacher writes answers, then the student is trained on them.</p></div>
+      </div>
+      <div class="grid g2" style="margin-top:18px">
+        <div class="card reveal"><h3>OpenEval + auto-decision</h3><p>Held-out evaluation every N steps, best-checkpoint saving, LR halving on plateau and early stop — recorded as controller actions.</p></div>
+        <div class="card reveal"><h3>Training playbook</h3><p>Winning recipes are stored per model/dataset signature and seed the next automatic run. A measured memory, not a neural meta-learner.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gallery">
+    <div class="wrap">
+      <div class="section-head reveal"><h2>Inside the app</h2><p>Dark-first, responsive, keyboard accessible, German / English / French.</p></div>
+      <div class="gallery">
+        <figure class="reveal" data-full="assets/models.png"><img src="assets/models.png" alt="Models screen" loading="lazy" /><figcaption>Models — metadata and fit estimates</figcaption></figure>
+        <figure class="reveal" data-full="assets/pipeline.png"><img src="assets/pipeline.png" alt="Pipeline screen" loading="lazy" /><figcaption>Pipeline — GGUF, MoE, Vulkan, logs, training</figcaption></figure>
+        <figure class="reveal" data-full="assets/training.png"><img src="assets/training.png" alt="Training screen" loading="lazy" /><figcaption>Training — smoke, preflight, runs</figcaption></figure>
+        <figure class="reveal" data-full="assets/data.png"><img src="assets/data.png" alt="Data Studio" loading="lazy" /><figcaption>Data Studio — redaction and review</figcaption></figure>
+        <figure class="reveal" data-full="assets/playground.png"><img src="assets/playground.png" alt="Playground" loading="lazy" /><figcaption>Playground — streaming with metrics</figcaption></figure>
+        <figure class="reveal" data-full="assets/mobile.png"><img src="assets/mobile.png" alt="Mobile layout" loading="lazy" /><figcaption>Mobile — bottom navigation, no overflow</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart" style="background:var(--surface);border-block:1px solid var(--border)">
+    <div class="wrap">
+      <div class="section-head reveal"><h2>Start in one minute</h2><p>The executable bundles the API and the UI. The source install adds the ML stack for fine-tuning.</p></div>
+      <div class="grid g2">
+        <div class="card reveal">
+          <h3>Windows executable</h3>
+          <p class="small" style="margin-bottom:12px">No Python, no Node. Data goes to <code>%LOCALAPPDATA%\HCS Foundry</code>.</p>
+          <div class="code"><button class="copy" data-copy="HCSFoundry.exe">Copy</button><pre><span class="c"># download from the release, then</span>
+<span class="k">HCSFoundry.exe</span></pre></div>
+        </div>
+        <div class="card reveal">
+          <h3>From source</h3>
+          <p class="small" style="margin-bottom:12px">Python 3.11+ and Node 20+.</p>
+          <div class="code"><button class="copy" data-copy="cd server && python -m pip install -e . && python -m foundry.cli serve --port 8770">Copy</button><pre><span class="k">cd server</span>
+python -m pip install -e .
+python -m foundry.cli serve --port 8770
+
+<span class="c"># second terminal</span>
+<span class="k">cd web</span> && npm install && npm run build</pre></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:16px">
+        <div class="card reveal"><h3>Pull and run a model</h3>
+          <div class="code"><pre>foundry hf pull Qwen/Qwen3-0.6B --file model.safetensors
+foundry models scan --root data/models
+foundry models run &lt;id&gt; --prompt "Say hello"</pre></div>
+        </div>
+        <div class="card reveal"><h3>Clean logs and train</h3>
+          <div class="code"><pre>foundry logs clean --json
+foundry train unified --dataset &lt;id&gt; --model data/models/Qwen/Qwen3-0.6B
+foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M</pre></div>
+        </div>
+      </div>
+      <div class="callout ok reveal" style="margin-top:18px"><div><b>Local-only by default.</b> The service binds to 127.0.0.1, requires a pairing token, validates Origin/Host and never sends telemetry. A deployed frontend can only reach a local service through explicit pairing.</div></div>
+    </div>
+  </section>
+
+  <section id="limits">
+    <div class="wrap">
+      <div class="section-head reveal"><h2>What it does not do</h2><p>Documented instead of hidden.</p></div>
+      <div class="grid g3">
+        <div class="card reveal"><h3>No 4B/8B full fine-tune here</h3><p>fp32 loading needs ~17.4 GB for 4B; this machine has ~5.6 GB free. The unified trainer refuses with numbers.</p></div>
+        <div class="card reveal"><h3>No Vulkan training</h3><p>PyTorch has no Vulkan backend. Vulkan is used for inference and tuning only.</p></div>
+        <div class="card reveal"><h3>No GGUF → HF conversion</h3><p>Only GGUF→F16 requantization is available; the toolchain has no GGUF→safetensors converter.</p></div>
+      </div>
+      <div class="callout reveal" style="margin-top:18px"><div><b>Roadmap.</b> Streaming INT4 at 4B, GGUF→HF conversion, official SWE-bench assets with isolation, and a verified Vulkan/ROCm training backend when the frameworks support it.</div></div>
+    </div>
+  </section>
+
+  <section style="padding-top:20px">
+    <div class="wrap center reveal">
+      <h2>Build your own local model lab</h2>
+      <p class="muted" style="margin:12px auto 24px;max-width:560px">MIT licensed. No account. No cloud. Your hardware, your data, your results.</p>
+      <div class="row" style="justify-content:center">
+        <a class="btn primary" href="https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe">Download .exe</a>
+        <a class="btn" href="https://github.com/timfromhcs/hcs-foundry" target="_blank" rel="noopener">Star on GitHub</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap row between">
+    <div class="row"><span class="mark" style="width:26px;height:26px;font-size:12px">H</span><span>HCS Foundry · MIT</span></div>
+    <div class="row"><a href="https://github.com/timfromhcs/hcs-foundry">GitHub</a><a href="https://github.com/timfromhcs/hcs-foundry/releases">Releases</a><a href="https://github.com/timfromhcs/hcs-foundry/tree/main/docs">Docs</a></div>
+    <div>Made with ❤️ by timfromhcs and hcsmedia</div>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox"><img alt="Screenshot" /></div>
+<script>
+const root=document.documentElement;
+const saved=localStorage.getItem('site-theme');
+if(saved) root.dataset.theme=saved;
+document.getElementById('theme').addEventListener('click',()=>{
+  const next=root.dataset.theme==='dark'?'light':'dark';
+  root.dataset.theme=next; localStorage.setItem('site-theme',next);
+});
+document.querySelectorAll('.copy').forEach(btn=>btn.addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText(btn.dataset.copy||'');btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy',1400)}catch(e){}
+}));
+const io=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})
+},{threshold:.12});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+const lb=document.getElementById('lightbox');
+document.querySelectorAll('.gallery figure').forEach(fig=>fig.addEventListener('click',()=>{
+  lb.querySelector('img').src=fig.dataset.full; lb.classList.add('open');
+}));
+lb.addEventListener('click',()=>lb.classList.remove('open'));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')lb.classList.remove('open')});
+</script>
+</body>
+</html>

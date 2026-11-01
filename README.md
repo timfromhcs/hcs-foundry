@@ -1,148 +1,315 @@
-# HCS Foundry v4
+<div align="center">
+
+<img src="docs/screenshots/hub.png" alt="HCS Foundry — Model Hub" width="860" />
+
+# HCS Foundry
 
 **Your local AI model lab. Built to learn, tested to improve.**
 
-HCS Foundry finds and pulls models from Hugging Face, runs GGUF inference on your hardware, imports your own agent sessions into a reviewed dataset, fine-tunes LoRA adapters (fp32, INT4, DPO or distillation), evaluates during training, exports GGUF, quantizes it, converts dense models to MoE, and tunes Vulkan offload — all locally.
+Pull GGUF models from Hugging Face · run them on Vulkan · clean your own agent logs ·
+fine-tune LoRA / INT4 · export and quantize GGUF · MoEfy dense models · benchmark coding
+and agentic tasks — all on one machine, with no telemetry and no cloud fallback.
 
-No telemetry. No cloud fallback. Nothing leaves the machine unless you explicitly enable it.
+[![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-4.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
+[![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
 
-<p align="center">
-  <img src="docs/screenshots/pipeline.png" alt="Pipeline" width="880" />
-</p>
+[**Download the .exe**](https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe) ·
+[Website](https://agile-jasper-pcdb33c.tmp.now) ·
+[Documentation](docs) ·
+[Benchmarks](#benchmarks) ·
+[Roadmap](#roadmap)
 
-## What is new in v4
+</div>
 
-| Feature | State | Proof |
+---
+
+## Table of contents
+
+- [Why this exists](#why-this-exists)
+- [What it does](#what-it-does)
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [CLI](#cli)
+- [Training](#training)
+- [Benchmarks](#benchmarks)
+- [Architecture](#architecture)
+- [Privacy and security](#privacy-and-security)
+- [Honest limitations](#honest-limitations)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [License](#license)
+
+---
+
+## Why this exists
+
+Local AI tooling is fragmented: one app downloads models, another runs them, a third
+trains, a fourth benchmarks, and none of them agree on what the machine can actually do.
+HCS Foundry is one local-first workbench that measures the host, refuses what does not
+fit, and records evidence for every claim.
+
+Three rules drive the code:
+
+1. **Local by default.** The service binds to `127.0.0.1`, requires a pairing token and
+   never sends telemetry. Cloud is opt-in and limited to a teacher role.
+2. **No fake success.** A model is not “loaded” until it answers; a job is not “trained”
+   until parameters changed and a checkpoint exists; a benchmark is not “passed” because
+   a model said so.
+3. **Refuse with numbers.** When a configuration cannot fit, the UI and CLI print the
+   estimate and the available memory instead of crashing the desktop.
+
+## What it does
+
+| Area | Capability | Status |
 |---|---|---|
-| **Streaming INT4 loader** — quantize while reading shards, no fp32 peak | working, 4B run pending | 0.6B streaming run: 196 layers, loss 5.72 → 4.89 |
-| **Unified auto trainer** — decides SFT vs INT4, then train → merge → export → quantize | working | `decide()` tests + chain implementation |
-| **Full chat-log cleanup** — import, redact, filter, freeze, quarantine, report | working | 79 imported, 75 included, 4 excluded, frozen hash, originals untouched |
-| **Repo-fix benchmark** — model repairs a file, tests run in a per-case venv | working | 3 cases, 10 tests |
-| **Agentic benchmark** — JSON file tasks in a sandbox with venv execution | working | 3 cases, deterministic checks |
-| **SWE-bench adapter** — official JSONL shape, per-instance venv | partial | runs local checkouts; official assets not bundled (`not_run`) |
-| **Vulkan profile reuse** — tuned profile recorded in benchmark metadata | working | `tune apply`, `/tune/profile/{id}` |
-
-## What is new in v3
-
-| Feature | State | Proof |
-|---|---|---|
-| **GGUF export** from safetensors | working | Qwen3-0.6B → F16 GGUF, 1.41 GiB in 209 s |
-| **Quantization** (Q2_K…Q8_0, F16, BF16) | working | Q4_K_M, 462 MiB, ratio 0.321 |
-| **GGUF upcast** to F16/BF16 | working, labelled *upcast* | no GGUF→HF converter exists in the toolchain |
-| **MoEfication** (dense FFN → experts + router) | working, untrained router | real conversion with finite forward pass |
-| **INT4 / QLoRA training** without bitsandbytes | working | 196 layers, loss 5.72 → 4.86, adapter saved |
-| **SFT, DPO, distillation** | working | each tested on tiny models |
-| **OpenEval + auto-decision + playbook** | working | eval 4.344 → 4.233, best checkpoint, recipe recorded |
-| **Vulkan auto-tuning** | working | ngl=99 → 107.8 tok/s, **2.1× vs CPU** |
-| **Real log import** (Claude, Codex, Antigravity, OpenCode) | working | 72 records from this machine, sources untouched |
-| **All-in-one pipeline** | working | ordered stages, resumable, JSON + Markdown report |
-| **Pipeline UI + 14 CLI command groups** | working | E2E tests green |
-
-## Honest boundaries
-
-- **A complete 4B/8B fine-tune is refused on this machine.** The 4B model ships 8.68 GB of BF16 weights; the trainer loads fp32 (≈17.4 GB) against ~5.6 GB free. The CLI and API refuse with those numbers instead of crashing.
-- **Vulkan accelerates inference, not training.** PyTorch has no Vulkan backend here; training is CPU-only and says so.
-- **INT4 saves memory during training, not during loading.** The loader still needs the fp32 peak; a streaming loader is the documented next step.
-- **GGUF cannot be converted back to HF safetensors** with the discovered tooling. Only GGUF→F16 requantization is offered.
+| **Hub** | Search Hugging Face, inspect files + LFS hashes, pull with **or without** a token, resume, verify, cancel | ✅ verified |
+| **Library** | GGUF header metadata, parameter count, KV bytes/token, fit range against live RAM | ✅ |
+| **Inference** | Supervised `llama-server`, Vulkan offload, streaming, cancel, metrics, auto-tuned `ngl` | ✅ 2.1× measured |
+| **Data Studio** | 5 session adapters, consent gate, redaction, exact + near dedupe, leakage-safe splits, freeze, export | ✅ |
+| **Identity Maker** | One prompt → editable identity card → synthetic dataset → deterministic evaluation | ✅ |
+| **Training** | SFT, DPO, distillation, INT4/QLoRA; OpenEval; auto LR/stop; best checkpoint; playbook | ✅ verified on 0.6B |
+| **GGUF out** | Merge adapter → convert to GGUF → quantize Q2–Q8 → verify by inference | ✅ 0.6B end-to-end |
+| **MoEfication** | Dense FFN → N experts + top-k router, forward-checked, memory-guarded | ✅ small scale |
+| **Benchmarks** | Instruction, executed codegen, repo-fix, agentic, SWE-bench-format adapter (venv per case) | ✅ |
+| **Upgrade Lab** | Failure taxonomy → candidate → re-eval → holdout guard → human gate → rollback | ✅ |
+| **Agent** | Visible plans, typed allowlisted tools, approval queue, bounded repair | ✅ |
+| **UI** | React 18, dark/light, de/en/fr, command palette, mobile nav, reduced motion | ✅ |
 
 ## Screenshots
 
-| Hub | Pipeline |
+| Pipeline | Models |
 |---|---|
-| ![Hub](docs/screenshots/hub.png) | ![Pipeline](docs/screenshots/pipeline.png) |
+| ![Pipeline](docs/screenshots/pipeline.png) | ![Models](docs/screenshots/models.png) |
 
-| Models | Training |
+| Data Studio | Training |
 |---|---|
-| ![Models](docs/screenshots/models.png) | ![Training](docs/screenshots/training.png) |
+| ![Data Studio](docs/screenshots/data.png) | ![Training](docs/screenshots/training.png) |
+
+| Playground | Command palette |
+|---|---|
+| ![Playground](docs/screenshots/playground.png) | ![Palette](docs/screenshots/palette.png) |
+
+## Install
+
+### Option A — single executable (Windows, recommended)
+
+Download [`HCSFoundry.exe`](https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe)
+from the latest release and run it. One self-contained file: API, SPA and Python runtime. The ML stack is excluded.
+
+```powershell
+.\HCSFoundry.exe
+```
+
+- Opens the browser at `http://127.0.0.1:8770`.
+- Data lives in `%LOCALAPPDATA%\HCS Foundry`; the executable can sit anywhere.
+- `--port 8780`, `--no-browser`, `--data-dir D:\foundry-data` are supported.
+- Fine-tuning is excluded from the bundle (the ML stack would multiply the size); the
+  Training Lab says so instead of failing silently. Use Option B for training.
+
+### Option B — from source (all features)
+
+```bash
+git clone https://github.com/timfromhcs/hcs-foundry.git
+cd hcs-foundry/server
+python -m pip install -e .            # add ".[train]" for fine-tuning
+python -m foundry.cli serve --port 8770
+
+# second terminal
+cd ../web
+npm install
+npm run build                          # or: npm run dev
+```
+
+Open <http://127.0.0.1:8770>.
 
 ## Quick start
 
-```powershell
-# from source
-cd server
-python -m pip install -e .
-python -m foundry.cli serve --port 8770
-
-# or the standalone build
-powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1
-.\dist-exe\HCSFoundry.exe
-```
-
-### Pull, run, export, quantize
-
 ```bash
+# 1. find a model
 foundry hf search "qwen3 0.6b" --limit 5
+
+# 2. pull it anonymously (no token needed for public repos)
 foundry hf pull Qwen/Qwen3-0.6B --file model.safetensors --file tokenizer.json
+
+# 3. index and run
 foundry models scan --root data/models
-foundry models run <model-id> --prompt "Say hello"
+foundry models run <model-id> --prompt "Explain KV-cache quantization in two sentences"
 
-foundry gguf export <model-id> --dtype f16
+# 4. clean your own agent sessions
+foundry logs clean --json
+
+# 5. train, export, quantize
+foundry train unified --dataset <dataset-id> --model data/models/Qwen/Qwen3-0.6B
 foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M
-foundry tune vulkan <gguf-model-id> --ngl 0,16,99
 ```
 
-### Train on your own sessions
+Gated or private repositories need a token once:
 
 ```bash
-foundry logs scan
-foundry logs import all --rights confirmed
-foundry train auto   --dataset <id> --model data/models/Qwen/Qwen3-0.6B --steps 20
-foundry train int4   --dataset <id> --model data/models/Qwen/Qwen3-0.6B --steps 10
-foundry train dpo    --dataset <id> --model data/models/Qwen/Qwen3-0.6B --steps 10
-foundry train distill --dataset <id> --model data/models/Qwen/Qwen3-0.6B --teacher local
+foundry hf token set --token hf_xxx
 ```
 
-### All-in-one
+## CLI
 
-```bash
-foundry pipeline run --stages dataset,train,merge,export,quantize,report \
-  --sources claude_code,codex,antigravity --dataset <id> --model <path>
+Fourteen command groups, `--json` where it matters, non-zero exit codes.
+
+```text
+foundry serve | scan | info | token
+foundry hf       search | files | pull | token
+foundry models   list | scan | verify | load | unload | run
+foundry bench    instruction_adherence | codegen_exec | latency_throughput | repo_fix | agentic
+foundry train    smoke | preflight | sft | auto | int4 | dpo | distill | unified
+foundry gguf     export | quantize | dequantize | inspect
+foundry moe      build
+foundry tune     vulkan | apply
+foundry logs     scan | import | clean
+foundry pipeline run
+foundry datasets list
 ```
 
-## Measured on this machine
+See [docs/CLI.md](docs/CLI.md) for every flag.
 
-AMD Ryzen 7 7735HS, Radeon 680M (unified memory, **0 B dedicated VRAM**), 19.8 GiB visible RAM, Vulkan 1.4.357, `llama-server` build 11064.
+## Training
 
-| Measurement | Value |
+| Method | What it does | Verified |
+|---|---|---|
+| **SFT / LoRA** | transformers + PEFT, architecture-aware targets, checkpoints, resume | loss 6.04 → 5.01 on 0.6B |
+| **INT4 / QLoRA** | group-wise 4-bit packing, dequantized per layer, LoRA in fp32, no bitsandbytes | 196 layers, loss 5.72 → 4.89 |
+| **DPO** | synthetic preference pairs, adapter-disabled reference | 2-step smoke |
+| **Distillation** | local or gateway teacher writes answers, student SFT | tested |
+| **Auto** | OpenEval + LR halving + early stop + best checkpoint + playbook | eval 4.344 → 4.233 |
+
+A 4B/8B full fine-tune is **refused** on this hardware: 8.68 GB of BF16 weights become
+~17.4 GB in fp32 against ~5.6 GB free. The unified trainer prints that and stops.
+The streaming INT4 loader is implemented; a completed 4B run is still pending the
+9.32 GB download.
+
+## Benchmarks
+
+All scores are **project-specific smoke** results, never leaderboard claims.
+
+| Suite | Oracle | Isolation |
+|---|---|---|
+| Instruction adherence | deterministic assertions (format, language, secrecy, arithmetic) | in-process |
+| Code generation | generated Python executed against unit tests | subprocess + timeout |
+| Repo fix | model repairs a file, tests run | **per-case venv** |
+| Agentic | JSON file tasks, deterministic checks | temp workspace + venv |
+| SWE-bench format | official JSONL, local checkouts | **per-instance venv**, command allowlist |
+
+Measured on the test machine (Ryzen 7 7735HS, Radeon 680M, 19.8 GiB):
+
+| Measurement | Result |
 |---|---|
-| GGUF export (0.6B → F16) | 209 s, 1.41 GiB |
-| Quantize F16 → Q4_K_M | 17 s, 462 MiB, ratio 0.321 |
+| GGUF export (0.6B → F16) | 1.41 GiB in 209 s |
+| Quantize F16 → Q4_K_M | 462 MiB, ratio 0.321, 17 s |
 | Inference after export | 113.5 tok/s, TTFT 0.79 s |
-| Vulkan sweep | 51.4 tok/s CPU → 107.8 tok/s GPU (2.1×) |
-| Auto SFT (0.6B, 6 steps) | eval 4.344 → 4.233 |
-| INT4 SFT (0.6B, 2 steps) | loss 5.72 → 4.86, 196 layers quantized |
-| 4B Q4_K_M inference | loads and answers on Vulkan at ctx 512 |
+| Vulkan sweep | 51.4 → 107.8 tok/s (**2.1×**) |
+| Auto SFT (6 steps) | eval 4.344 → 4.233 |
+| INT4 SFT | loss 5.72 → 4.89 |
+| 4B Q4_K_M | loads and answers at ctx 512 |
 
-## Testing
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ Browser SPA — React 18 + TypeScript + Vite                  │
+│ de/en/fr · dark/light · command palette · SSE job tray      │
+└────────────────────────────┬────────────────────────────────┘
+                             │ loopback HTTP + SSE, pairing token
+┌────────────────────────────▼────────────────────────────────┐
+│ Foundry service — FastAPI + Pydantic + SQLite (WAL)         │
+│ security · jobs · governor · library · datasets · training  │
+└──────┬──────────────────┬──────────────────┬────────────────┘
+       │                  │                  │
+┌──────▼──────┐   ┌───────▼────────┐  ┌──────▼────────────┐
+│ llama-server│   │ torch trainer  │  │ data pipeline     │
+│ subprocess  │   │ SFT/INT4/DPO   │  │ + benchmarks      │
+└──────┬──────┘   └───────┬────────┘  └──────┬────────────┘
+       │                  │                  │
+┌──────▼──────────────────▼──────────────────▼────────────┐
+│ Local storage: SQLite metadata + content-addressed files │
+│ GGUF library · datasets · checkpoints · reports          │
+└──────────────────────────────────────────────────────────┘
+```
+
+The browser never touches host processes. The service validates `Host` (loopback),
+`Origin` (allowlist), a bearer token, `X-Foundry-Client` on mutations and a path
+allowlist on every filesystem access.
+
+## Privacy and security
+
+- **No telemetry, no crash uploads, no remote inference** by default.
+- Session imports read only the paths you select, inside configured roots; originals are
+  never modified.
+- Secrets, emails, phone numbers, credentials and `vck_`/`hf_`/`ghp_` keys are redacted
+  before records are stored; previews are redacted too.
+- Hidden chain-of-thought is never reconstructed. Teaching notes quote observable
+  evidence and are labelled synthetic.
+- The optional Vercel AI Gateway teacher is **off by default**, stores its key locally,
+  masks it in the API and is the only cloud path.
+
+Details: [docs/SECURITY.md](docs/SECURITY.md) · [docs/DATA_AND_PRIVACY.md](docs/DATA_AND_PRIVACY.md).
+
+## Honest limitations
+
+- **No 4B/8B full fine-tune on this machine** (fp32 peak ≈ 17.4 GB vs ~5.6 GB free).
+- **No Vulkan training** — PyTorch has no Vulkan backend; Vulkan is inference only.
+- **No GGUF → HF conversion** — only GGUF→F16 requantization is available.
+- **Official SWE-bench assets are not bundled**; the adapter runs local checkouts and
+  reports `not_run` otherwise.
+- **INT4 saves memory during training, not during loading** (streaming loader implemented,
+  4B proof pending).
+
+The full list is in [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/KNOWN_LIMITATIONS.md).
+
+## Roadmap
+
+- [ ] Completed 4B streaming-INT4 training run with measured peak RSS
+- [ ] GGUF → HF safetensors conversion to continue training from a quantized file
+- [ ] Verified Vulkan/ROCm training backend when a framework supports it
+- [ ] Official SWE-bench / Terminal-Bench assets with hardened isolation
+- [ ] Permanent Vercel deployment of the landing site and a paired web demo
+- [ ] More training recipes with measured projections per hardware class
+
+## Development
 
 ```bash
 cd server && python -m pytest -q      # 165 tests
 cd web && npx vitest run              # 7 tests (incl. i18n parity)
-cd web && npx playwright test         # 7 E2E tests (service running)
+cd web && npx playwright test         # 7 E2E tests (service must run)
 ```
 
-GitHub Actions runs all three on a clean Ubuntu checkout.
+Layout:
 
-## Documentation
+```text
+server/foundry/     FastAPI service, machine probes, runtime, data, training, benchmarks
+web/                React SPA (Vite, TypeScript, i18next)
+site/               static landing page (Vercel)
+docs/               audit, architecture, guides, evidence
+scripts/            build_exe.ps1
+```
 
-- [Model Hub](docs/HUB.md) · [CLI](docs/CLI.md) · [Standalone EXE](docs/STANDALONE.md)
-- [Training](docs/TRAINING.md) · [Benchmarks](docs/BENCHMARKS.md)
-- [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md)
-- [Data & privacy](docs/DATA_AND_PRIVACY.md) · [Models & runtimes](docs/MODELS_AND_RUNTIMES.md)
-- [v3 plan](docs/plan/V3_PLAN.md) · [Known limitations](docs/architecture/KNOWN_LIMITATIONS.md)
-- [Release report v3](docs/evidence/RELEASE_REPORT_V3.md) · [Changelog](CHANGELOG.md)
+Build the executable:
 
-## Vercel
-
-The static frontend can be deployed; local compute never runs on Vercel. The optional
-AI Gateway teacher is opt-in and currently blocked by account billing on this setup.
-See [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) and
-[docs/evidence/vercel_setup.md](docs/evidence/vercel_setup.md).
+```powershell
+python -m pip install pyinstaller
+powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1
+```
 
 ## License
 
-MIT — see [LICENSE](LICENSE). No model weights, datasets or benchmark assets are bundled.
+MIT — see [LICENSE](LICENSE). No model weights, datasets or benchmark assets are
+bundled; models and datasets remain subject to their own licenses and provider terms.
 
 ---
 
-Made with ❤️ by **timfromhcs** and **hcsmedia**.
+<div align="center">
+
+Made with ❤️ by **timfromhcs** and **hcsmedia**
+
+</div>

@@ -1,0 +1,19 @@
+{
+  "name": "hcs-foundry-gateway-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "normal": "tsx normal.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/gateway": "^1.0.0",
+    "@ai-sdk/openai-compatible": "^1.0.0",
+    "ai": "^5.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
