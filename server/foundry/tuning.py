@@ -40,6 +40,21 @@ class TunePoint:
         }
 
 
+def profile_for(db: Database, model_id: str) -> dict | None:
+    profiles = db.get_setting("vulkan_profiles", {}) or {}
+    return profiles.get(model_id)
+
+
+def apply_profile(db: Database, model_id: str, *, context: int | None = None) -> dict | None:
+    """Return the stored winning profile, optionally constrained by context."""
+    profile = profile_for(db, model_id)
+    if not profile:
+        return None
+    if context is not None and context < int(profile.get("context") or 0):
+        return {**profile, "context": context, "note": "context reduced below the tuned value"}
+    return profile
+
+
 def sweep(
     db: Database,
     server: LlamaServer,

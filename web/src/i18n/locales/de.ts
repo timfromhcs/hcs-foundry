@@ -751,5 +751,8 @@ export const de: Record<TranslationKey, string> = {
   'pipeline.requires_model': 'Zuerst ein Modell auswählen.',
   'pipeline.note_4b': 'Ein 4B-Fine-Tune wird auf dieser Maschine abgelehnt: ca. 17 GB fp32-Gewichte bei ~5,6 GB frei.',
   'pipeline.int4': 'INT4 (QLoRA)',
+  'pipeline.clean': 'Alle Logs bereinigen',
+  'pipeline.clean_note': 'Importieren, redigieren, filtern, einfrieren und Quarantäne-Kopie schreiben. Originale bleiben unverändert.',
+  'pipeline.full_train': 'Komplettes lokales Training',
 
 }

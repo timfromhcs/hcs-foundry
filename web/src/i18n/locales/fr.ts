@@ -751,5 +751,8 @@ export const fr: Record<TranslationKey, string> = {
   'pipeline.requires_model': 'Sélectionnez d’abord un modèle.',
   'pipeline.note_4b': 'Un fine-tuning 4B est refusé sur cette machine : environ 17 Go de poids fp32 pour ~5,6 Go libres.',
   'pipeline.int4': 'INT4 (QLoRA)',
+  'pipeline.clean': 'Nettoyer tous les journaux',
+  'pipeline.clean_note': 'Importer, masquer, filtrer, geler et écrire une copie en quarantaine. Les originaux ne sont jamais modifiés.',
+  'pipeline.full_train': 'Entraînement local complet',
 
 }

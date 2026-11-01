@@ -1,0 +1,45 @@
+{
+  "dataset_id": "ds_e639a804ca5a414d9b12",
+  "created_at": "2026-11-01T21:15:49Z",
+  "providers": [
+    "claude_code",
+    "codex",
+    "antigravity",
+    "opencode"
+  ],
+  "files_by_source": {
+    "claude_code": 6,
+    "codex": 6,
+    "antigravity": 2,
+    "opencode": 0
+  },
+  "total_files": 14,
+  "records_imported": 79,
+  "records_included": 75,
+  "records_excluded": 4,
+  "duplicates_removed": 0,
+  "near_duplicates_removed": 0,
+  "redactions": {
+    "credit_card": 319,
+    "email": 236,
+    "github_token": 4,
+    "high_entropy": 811,
+    "unix_home_path": 557,
+    "windows_user_path": 392,
+    "phone": 614,
+    "credential_assignment": 2,
+    "hf_token": 6
+  },
+  "splits": {
+    "validation": 18,
+    "train": 53,
+    "test": 4
+  },
+  "dataset_hash": "4c28a267674e053110e7164a1edf0f4c181010027d5e007599fa897ac59783f9",
+  "holdout_hash": "6a604f9409b1c86a43e3036f84eeba385823b33595f28f6daa633ef2cc597e35",
+  "frozen": true,
+  "freeze_error": null,
+  "quarantine": "E:\\AILOCALTRAIN\\data\\quarantine\\ds_e639a804ca5a414d9b12.jsonl",
+  "originals_modified": false,
+  "report": "E:\\AILOCALTRAIN\\data\\reports\\cleanup-ds_e639a804ca5a414d9b12.json"
+}

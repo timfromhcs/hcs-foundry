@@ -573,6 +573,54 @@ def cmd_moe_build(args) -> int:
     return 0
 
 
+def cmd_tune_apply(args) -> int:
+    from .tuning import apply_profile
+
+    state = build_state()
+    profile = apply_profile(state.db, args.model_id)
+    if not profile:
+        return _fail("no Vulkan profile for this model; run `foundry tune vulkan <model>` first")
+    _print(profile, args.json, f"ngl={profile.get('gpu_layers')} batch={profile.get('batch')} ({profile.get('tokens_per_second')} tok/s)")
+
+
+def cmd_logs_clean(args) -> int:
+    from .data.cleanup import cleanup_all
+
+    state = build_state()
+    providers = [item.strip() for item in (args.providers or "").split(",") if item.strip()] or None
+    try:
+        result = cleanup_all(
+            state.db, state.settings, providers=providers, rights_status=args.rights,
+            quality_filter=not args.no_quality, quarantine=not args.no_quarantine,
+            progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _fail(str(exc))
+    if not args.json:
+        print()
+    _print(result, args.json, f"cleaned {result['records_included']} records -> {result['dataset_id']} (excluded {result['records_excluded']})")
+    return 0
+
+
+def cmd_train_unified(args) -> int:
+    from .training.unified import run_unified
+
+    state = build_state()
+    try:
+        result = run_unified(
+            state.db, state.settings, model_path=args.model, dataset_id=args.dataset,
+            options={"max_steps": args.steps, "quant": args.quant},
+            progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
+            log=(None if args.json else print),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _fail(str(exc))
+    if not args.json:
+        print()
+    _print(result, args.json, f"unified {result['run_id']}: " + ", ".join(f"{s['stage']}={s['status']}" for s in result["stages"]))
+    return 0
+
+
 def cmd_tune_vulkan(args) -> int:
     from .library import get_model
     from .tuning import sweep
@@ -738,6 +786,7 @@ def cmd_train_int4(args) -> int:
             state.db, config, job_id=None, output_dir=output,
             progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
             log=(None if args.json else print),
+            streaming=args.streaming,
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(str(exc))
@@ -870,7 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
     m_run.set_defaults(func=cmd_models_run)
 
     bench = sub.add_parser("bench", help="run a benchmark suite against the loaded model")
-    bench.add_argument("suite", choices=["instruction_adherence", "codegen_exec", "latency_throughput"])
+    bench.add_argument("suite", choices=["instruction_adherence", "codegen_exec", "latency_throughput", "repo_fix", "agentic"])
     bench.add_argument("--json", action="store_true")
     bench.set_defaults(func=cmd_bench)
 
@@ -949,6 +998,10 @@ def build_parser() -> argparse.ArgumentParser:
     t_vulkan.add_argument("--context", type=int, default=2048)
     t_vulkan.add_argument("--json", action="store_true")
     t_vulkan.set_defaults(func=cmd_tune_vulkan)
+    t_apply = tune_sub.add_parser("apply", help="show the stored winning profile")
+    t_apply.add_argument("model_id")
+    t_apply.add_argument("--json", action="store_true")
+    t_apply.set_defaults(func=cmd_tune_apply)
 
     logs = sub.add_parser("logs", help="discover and import local agent sessions")
     logs_sub = logs.add_subparsers(dest="logs_command", required=True)
@@ -960,6 +1013,13 @@ def build_parser() -> argparse.ArgumentParser:
     l_import.add_argument("--rights", default="needs_review", choices=["needs_review", "confirmed", "restricted", "excluded"])
     l_import.add_argument("--json", action="store_true")
     l_import.set_defaults(func=cmd_logs_import)
+    l_clean = logs_sub.add_parser("clean", help="import, redact, filter, freeze and quarantine all sources")
+    l_clean.add_argument("--rights", default="confirmed", choices=["needs_review", "confirmed", "restricted", "excluded"])
+    l_clean.add_argument("--providers", default=None)
+    l_clean.add_argument("--no-quality", action="store_true")
+    l_clean.add_argument("--no-quarantine", action="store_true")
+    l_clean.add_argument("--json", action="store_true")
+    l_clean.set_defaults(func=cmd_logs_clean)
 
     t_auto = train_sub.add_parser("auto", help="SFT with OpenEval, auto-decision and playbook")
     t_auto.add_argument("--dataset", required=True)
@@ -1010,9 +1070,17 @@ def build_parser() -> argparse.ArgumentParser:
     t_int4.add_argument("--lr", type=float, default=2e-4)
     t_int4.add_argument("--eval-every", type=int, default=0)
     t_int4.add_argument("--eval-samples", type=int, default=4)
+    t_int4.add_argument("--streaming", action="store_true", help="quantize while loading (avoids the fp32 peak)")
     t_int4.add_argument("--output", default=None)
     t_int4.add_argument("--json", action="store_true")
     t_int4.set_defaults(func=cmd_train_int4)
+    t_unified = train_sub.add_parser("unified", help="decide and run train → merge → export → quantize")
+    t_unified.add_argument("--dataset", required=True)
+    t_unified.add_argument("--model", required=True)
+    t_unified.add_argument("--steps", type=int, default=20)
+    t_unified.add_argument("--quant", default="Q4_K_M")
+    t_unified.add_argument("--json", action="store_true")
+    t_unified.set_defaults(func=cmd_train_unified)
 
     pipeline = sub.add_parser("pipeline", help="all-in-one orchestration")
     pipeline_sub = pipeline.add_subparsers(dest="pipeline_command", required=True)

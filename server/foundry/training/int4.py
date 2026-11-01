@@ -85,36 +85,41 @@ class Int4Linear:
     """Factory for a frozen 4-bit linear layer."""
 
     @staticmethod
-    def build(linear, group: int = GROUP_SIZE):
+    def from_parts(weight, bias, out_features: int, in_features: int):
         torch, nn, F = _torch()
 
         class _Int4Linear(nn.Module):
-            def __init__(self, source):
+            def __init__(self):
                 super().__init__()
-                weight = source.weight.detach()
-                out_features = int(getattr(source, "out_features", None) or getattr(source, "nf", weight.shape[1]))
-                in_features = int(getattr(source, "in_features", None) or weight.shape[0])
-                if weight.shape[0] != out_features:
-                    weight = weight.t().contiguous()
-                packed, scales, shape = quantize_int4(weight)
+                w = weight.detach()
+                if w.shape[0] != out_features:
+                    w = w.t().contiguous()
+                packed, scales, shape = quantize_int4(w)
                 self.register_buffer("packed", packed)
                 self.register_buffer("scales", scales)
                 self.shape = shape
-                self.in_features = in_features
-                self.out_features = out_features
-                if source.bias is not None:
-                    self.register_buffer("bias", source.bias.detach().clone())
+                self.in_features = int(in_features)
+                self.out_features = int(out_features)
+                if bias is not None:
+                    self.register_buffer("bias", bias.detach().clone())
                 else:
                     self.bias = None
 
             def forward(self, x):
-                weight = dequantize_int4(self.packed, self.scales, self.shape, x.dtype)
-                return F.linear(x, weight, self.bias)
+                weight_t = dequantize_int4(self.packed, self.scales, self.shape, x.dtype)
+                return F.linear(x, weight_t, self.bias)
 
             def extra_repr(self):
                 return f"in={self.in_features}, out={self.out_features}, int4"
 
-        return _Int4Linear(linear)
+        return _Int4Linear()
+
+    @staticmethod
+    def build(linear, group: int = GROUP_SIZE):
+        weight = linear.weight.detach()
+        out_features = int(getattr(linear, "out_features", None) or getattr(linear, "nf", weight.shape[1]))
+        in_features = int(getattr(linear, "in_features", None) or weight.shape[0])
+        return Int4Linear.from_parts(weight, linear.bias, out_features, in_features)
 
 
 class LoRALinear:
@@ -174,6 +179,143 @@ def _tokenize(tokenizer, text: str, max_len: int):
     return encoded["input_ids"]
 
 
+def _shard_paths(model_path: Path) -> list[Path]:
+    index = model_path / "model.safetensors.index.json"
+    if index.exists():
+        data = json.loads(index.read_text("utf-8"))
+        names = sorted(set((data.get("weight_map") or {}).values()))
+        return [model_path / name for name in names if (model_path / name).exists()]
+    single = model_path / "model.safetensors"
+    if single.exists():
+        return [single]
+    shards = sorted(model_path.glob("*.safetensors"))
+    if not shards:
+        raise ValueError("no safetensors shards found")
+    return shards
+
+
+def load_int4_streaming(
+    model_path: str | Path,
+    *,
+    targets: list[str] | None = None,
+    r: int = 8,
+    alpha: int = 16,
+    dropout: float = 0.0,
+    dtype=None,
+):
+    """Load a model shard by shard and quantize target linears while reading.
+
+    The model is created on the meta device, so the fp32 weights are never all
+    materialised at once.
+    """
+    torch, nn, _ = _torch()
+    from accelerate import init_empty_weights
+    from accelerate.utils import set_module_tensor_to_device
+    from safetensors import safe_open
+    from transformers import AutoConfig, AutoModelForCausalLM
+
+    path = Path(model_path).expanduser()
+    targets = set(targets or DEFAULT_TARGETS)
+    dtype = dtype or torch.float32
+    config = AutoConfig.from_pretrained(str(path))
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_config(config)
+
+    module_names = {name.split(".")[-1] for name, _ in model.named_modules()}
+    if not (targets & module_names):
+        for candidate in (DEFAULT_TARGETS, ["c_attn", "c_proj"], ["query", "key", "value", "dense"]):
+            if all(name in module_names for name in candidate):
+                targets = set(candidate)
+                break
+
+    converted = 0
+    assigned = 0
+    for shard in _shard_paths(path):
+        with safe_open(str(shard), framework="pt") as handle:
+            keys = list(handle.keys())
+            for key in keys:
+                if key.endswith(".weight"):
+                    module_path = key[: -len(".weight")]
+                    suffix = module_path.rsplit(".", 1)[-1]
+                    if suffix in targets and suffix != "lm_head":
+                        parent_path, _, attribute = module_path.rpartition(".")
+                        parent = model.get_submodule(parent_path) if parent_path else model
+                        target_module = getattr(parent, attribute)
+                        bias_key = module_path + ".bias"
+                        bias = handle.get_tensor(bias_key) if bias_key in keys else None
+                        weight = handle.get_tensor(key)
+                        out_features = int(
+                            getattr(target_module, "out_features", None)
+                            or getattr(target_module, "nf", weight.shape[1])
+                        )
+                        in_features = int(
+                            getattr(target_module, "in_features", None)
+                            or getattr(target_module, "nx", weight.shape[0])
+                        )
+                        int4 = Int4Linear.from_parts(weight, bias, out_features, in_features)
+                        setattr(parent, attribute, LoRALinear.build(int4, r, alpha, dropout))
+                        del weight
+                        converted += 1
+                        continue
+                if key.endswith(".bias"):
+                    module_path = key[: -len(".bias")]
+                    if module_path.rsplit(".", 1)[-1] in targets:
+                        continue  # consumed with the weight
+                set_module_tensor_to_device(model, key, "cpu", value=handle.get_tensor(key), dtype=dtype)
+                assigned += 1
+
+    try:
+        model.tie_weights()
+    except Exception:  # noqa: BLE001 - tying is best effort for non-standard configs
+        pass
+
+    leftovers = [name for name, parameter in model.named_parameters() if parameter.device.type == "meta"]
+    leftovers += [name for name, buffer in model.named_buffers() if buffer.device.type == "meta"]
+    if leftovers:
+        raise RuntimeError(f"streaming INT4 load left {len(leftovers)} tensors on meta, e.g. {leftovers[:3]}")
+
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+    for name, parameter in model.named_parameters():
+        if "lora_" in name:
+            parameter.requires_grad_(True)
+    return model, {"converted_layers": converted, "assigned_tensors": assigned, "targets": sorted(targets), "streaming": True}
+
+
+def estimate_int4_resources(model_path: str | Path, config: SFTConfig) -> dict:
+    """Memory estimate for the streaming path (INT4 weights + fp32 leftovers)."""
+    path = Path(model_path).expanduser()
+    weights = sum(f.stat().st_size for f in list(path.glob("*.safetensors")) + list(path.glob("*.bin")))
+    model_config = {}
+    config_path = path / "config.json"
+    if config_path.exists():
+        try:
+            model_config = json.loads(config_path.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            model_config = {}
+    hidden = int(model_config.get("hidden_size") or model_config.get("n_embd") or 2048)
+    layers = int(model_config.get("num_hidden_layers") or model_config.get("n_layer") or 24)
+    quantized = int(weights * 0.25)  # 4 bits + scales, roughly
+    leftovers = 1200 * 1024**2       # embeddings, norms, lm_head in fp32
+    activations = config.micro_batch * config.max_seq_len * hidden * layers * 2 * 4
+    low = quantized + leftovers + activations
+    high = int(low * 1.35)
+    available = psutil.virtual_memory().available
+    return {
+        "weights_bytes": weights,
+        "quantized_bytes": quantized,
+        "leftovers_bytes": leftovers,
+        "activation_bytes": activations,
+        "estimated_low_bytes": int(low),
+        "estimated_high_bytes": high,
+        "available_bytes": available,
+        "fits": high < available * 0.9,
+        "streaming": True,
+        "confidence": "low",
+        "note": "Streaming estimate: INT4 weights + fp32 embeddings/norms + activations.",
+    }
+
+
 def train_int4(
     db: Database,
     config: SFTConfig,
@@ -182,6 +324,7 @@ def train_int4(
     progress: Callable[[float, str], None] | None = None,
     log: Callable[[str], None] | None = None,
     cancel=None,
+    streaming: bool = False,
 ) -> dict:
     torch, nn, _ = _torch()
     try:
@@ -193,13 +336,13 @@ def train_int4(
     if not model_path.is_dir():
         raise ValueError(f"base model directory not found: {model_path}")
 
-    resources = estimate_resources(model_path, config)
+    resources = estimate_int4_resources(model_path, config) if streaming else estimate_resources(model_path, config)
     if not resources["fits"] and not config.__dict__.get("force"):
         raise ValueError(
-            "loading this model still needs its fp32 size in RAM before INT4 conversion "
+            "this configuration does not fit the safe memory envelope "
             f"({resources['estimated_high_bytes'] / 1024**3:.1f} GiB estimated, "
-            f"{resources['available_bytes'] / 1024**3:.1f} GiB available). "
-            "Use a smaller base model; a streaming INT4 loader is not implemented yet."
+            f"{resources['available_bytes'] / 1024**3:.1f} GiB available)."
+            + ("" if streaming else " Enable streaming INT4 to avoid the fp32 load peak.")
         )
 
     if progress:
@@ -212,22 +355,32 @@ def train_int4(
     eval_texts = build_eval_texts(db, config.dataset_id, config.eval_samples) if config.eval_every else []
 
     if progress:
-        progress(12, "Loading base model (fp32 peak)")
-    model = AutoModelForCausalLM.from_pretrained(str(model_path), torch_dtype=torch.float32, low_cpu_mem_usage=True)
-    model.config.use_cache = False
+        progress(12, "Loading base model (streaming INT4)" if streaming else "Loading base model (fp32 peak)")
+    if streaming:
+        model, report = load_int4_streaming(
+            model_path,
+            targets=config.target_modules,
+            r=config.lora_r,
+            alpha=config.lora_alpha,
+            dropout=config.lora_dropout,
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(str(model_path), torch_dtype=torch.float32, low_cpu_mem_usage=True)
+        model.config.use_cache = False
+        if progress:
+            progress(22, "Quantizing to INT4 and attaching LoRA")
+        module_names = {name.split(".")[-1] for name, _ in model.named_modules()}
+        targets = [name for name in config.target_modules if name in module_names]
+        if not targets:
+            for candidate in (DEFAULT_TARGETS, ["c_attn", "c_proj"], ["query", "key", "value", "dense"]):
+                if all(name in module_names for name in candidate):
+                    targets = candidate
+                    break
+        if not targets:
+            raise ValueError("no LoRA target modules matched this architecture")
+        report = convert_model(model, targets=targets, r=config.lora_r, alpha=config.lora_alpha, dropout=config.lora_dropout)
 
-    if progress:
-        progress(22, "Quantizing to INT4 and attaching LoRA")
-    module_names = {name.split(".")[-1] for name, _ in model.named_modules()}
-    targets = [name for name in config.target_modules if name in module_names]
-    if not targets:
-        for candidate in (DEFAULT_TARGETS, ["c_attn", "c_proj"], ["query", "key", "value", "dense"]):
-            if all(name in module_names for name in candidate):
-                targets = candidate
-                break
-    if not targets:
-        raise ValueError("no LoRA target modules matched this architecture")
-    report = convert_model(model, targets=targets, r=config.lora_r, alpha=config.lora_alpha, dropout=config.lora_dropout)
+    targets = report.get("targets") or list(config.target_modules)
     trainable = [p for p in model.parameters() if p.requires_grad]
     trainable_count = sum(p.numel() for p in trainable)
     if log:
@@ -353,6 +506,7 @@ def create_int4_run(
     progress=None,
     log=None,
     cancel=None,
+    streaming: bool = False,
 ) -> dict:
     run_id = new_id("trn")
     db.insert(
@@ -371,7 +525,7 @@ def create_int4_run(
         },
     )
     try:
-        manifest = train_int4(db, config, output_dir=output_dir, progress=progress, log=log, cancel=cancel)
+        manifest = train_int4(db, config, output_dir=output_dir, progress=progress, log=log, cancel=cancel, streaming=streaming)
     except Exception as exc:
         db.execute(
             "UPDATE training_runs SET status='failed', metrics=?, finished_at=? WHERE id=?",

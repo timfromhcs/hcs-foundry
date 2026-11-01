@@ -647,6 +647,21 @@ class ApiClient {
     return this.request<{ job_id: string }>('/pipeline/run', { method: 'POST', body: { stages, options } })
   }
 
+  cleanSources(sources: string[], rights = 'confirmed') {
+    return this.request<{ job_id: string }>('/sources/clean', {
+      method: 'POST',
+      body: { sources, rights_status: rights, quality_filter: true, quarantine: true },
+    })
+  }
+
+  trainingUnified(payload: Record<string, unknown>) {
+    return this.request<{ job_id: string }>('/training/unified', { method: 'POST', body: payload })
+  }
+
+  tuneProfile(modelId: string) {
+    return this.request<{ profile: Record<string, unknown> }>(`/tune/profile/${modelId}`)
+  }
+
   // -- runs --------------------------------------------------------------
   runs(limit = 50, type?: string) {
     const query = new URLSearchParams({ limit: String(limit) })

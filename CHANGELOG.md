@@ -2,7 +2,55 @@
 
 All notable changes to HCS Foundry.
 
-## [3.0.0] - 2026-11-01
+## [4.0.0] — 2026-11-01
+
+### Added
+
+- **Streaming INT4 loader**: builds the model on `meta`, streams safetensors shards,
+  quantizes target linears immediately, and refuses if any tensor is left on `meta`.
+  `train int4 --streaming` and `POST /training/auto {algorithm:"int4", streaming:true}`.
+- **Unified auto trainer** (`training/unified.py`): decides SFT vs streaming INT4 from
+  model size, free RAM and the playbook, then runs train → merge → export GGUF →
+  quantize and writes a report.
+- **Full chat-log cleanup** (`data/cleanup.py`): discover → import all → redact →
+  dedupe → quality filter → rights → freeze → quarantine copy → report. Originals are
+  never modified; excluded records are marked, not deleted.
+- **Repo-fix benchmark**: the model repairs a buggy file and the tests run in a
+  per-case venv.
+- **Agentic benchmark**: multi-step file tasks answered as JSON, applied in a sandbox,
+  one task executed in a venv.
+- **SWE-bench adapter**: official JSONL shape, per-instance repo copy + venv, command
+  allowlist, and honest `not_run` when assets are missing.
+- **Vulkan profile reuse**: `tune apply`, `/tune/profile/{model_id}`, and the tuned
+  profile recorded in benchmark metadata.
+- CLI `logs clean`, `train unified`, `tune apply`, `bench repo_fix|agentic`; API
+  `/sources/clean`, `/training/unified`, `/tune/profile`; Pipeline page buttons for
+  "Clean all logs" and "Full local train".
+
+### Fixed
+
+- Streaming INT4 computed `in_features` from the parent module instead of the linear,
+  producing shape mismatches on Qwen-style models.
+- CLI crash after the v4 command additions (indentation).
+- Redaction now covers `vck_` gateway keys.
+
+### Verified
+
+- 165 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.
+- Cleanup: 79 records imported, 75 included, 4 excluded, frozen with hash and a
+  quarantine copy; originals untouched.
+- Streaming INT4 on 0.6B: 196 layers, loss 5.72 → 4.89.
+- Repo-fix and agentic benchmarks pass on a deterministic fake server; SWE-bench
+  instance passes in a venv.
+
+### Blocked / pending
+
+- **4B streaming INT4 run**: the 9.32 GB safetensors download did not finish in this
+  session, so no 4B training claim is made.
+- **Official SWE-bench**: dataset and checkouts are not bundled.
+- **Vulkan training**: still no PyTorch Vulkan backend.
+
+## [3.0.0] — 2026-11-01
 
 ### Added
 

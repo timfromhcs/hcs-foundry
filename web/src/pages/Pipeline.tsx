@@ -221,6 +221,13 @@ export function Pipeline() {
               >
                 {t('pipeline.import_all')}
               </Button>
+              <Button
+                icon="shield"
+                onClick={() => void run(t('pipeline.clean'), () => api.cleanSources(['claude_code', 'codex', 'antigravity', 'opencode'], 'confirmed'))}
+              >
+                {t('pipeline.clean')}
+              </Button>
+              <span className="tiny dim">{t('pipeline.clean_note')}</span>
             </div>
           )}
         </Card>
@@ -270,6 +277,17 @@ export function Pipeline() {
             }
           >
             {t('pipeline.start')}
+          </Button>
+          <Button
+            icon="bolt"
+            disabled={!datasetId || !modelPath}
+            onClick={() =>
+              void run(t('pipeline.full_train'), () =>
+                api.trainingUnified({ dataset_id: datasetId, model_path: modelPath, max_steps: steps, quant: method }),
+              )
+            }
+          >
+            {t('pipeline.full_train')}
           </Button>
         </div>
       </Card>

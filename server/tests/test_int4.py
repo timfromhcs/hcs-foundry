@@ -9,7 +9,9 @@ pytest.importorskip("transformers", reason="training extras are not installed")
 
 from foundry.training.int4 import (  # noqa: E402
     dequantize_int4,
+    estimate_int4_resources,
     int4_size_bytes,
+    load_int4_streaming,
     quantize_int4,
     train_int4,
 )
@@ -70,3 +72,44 @@ def test_int4_refuses_missing_model(db, tmp_path: Path):
     config = SFTConfig(model_path=str(tmp_path / "nope"), dataset_id=dataset_id, max_steps=1)
     with pytest.raises(ValueError):
         train_int4(db, config, output_dir=tmp_path / "int4")
+
+
+def test_streaming_loader_quantizes_without_meta_leftovers(tmp_path: Path):
+    import torch
+
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    model, report = load_int4_streaming(model_dir, targets=["c_attn", "c_proj"], r=2, alpha=4)
+    assert report["converted_layers"] >= 2
+    assert report["streaming"] is True
+    ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+    with torch.no_grad():
+        logits = model(input_ids=ids).logits
+    assert bool(torch.isfinite(logits).all())
+
+
+def test_streaming_training_runs(db, tmp_path: Path):
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+    config = SFTConfig(
+        model_path=str(model_dir),
+        dataset_id=dataset_id,
+        max_steps=2,
+        max_seq_len=24,
+        grad_accum=1,
+        lora_r=2,
+        lora_alpha=4,
+        learning_rate=1e-3,
+        target_modules=["c_attn", "c_proj"],
+    )
+    manifest = train_int4(db, config, output_dir=tmp_path / "int4s", streaming=True)
+    assert manifest["kind"] == "int4_lora_sft"
+    assert manifest["resources"]["streaming"] is True
+    assert manifest["steps"] == 2
+
+
+def test_int4_resource_estimate_is_smaller_than_fp32(tmp_path: Path):
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    config = SFTConfig(model_path=str(model_dir), dataset_id="x", max_seq_len=32)
+    estimate = estimate_int4_resources(model_dir, config)
+    assert estimate["quantized_bytes"] < estimate["weights_bytes"]
+    assert estimate["streaming"] is True

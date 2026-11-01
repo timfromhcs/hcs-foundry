@@ -235,6 +235,63 @@ def sources_import(request: Request, body: SourcesImportRequest):
     return {"job_id": state.runner.submit("sources.import", job, input_data={"sources": body.sources}, heavy=True)}
 
 
+class CleanRequest(BaseModel):
+    sources: list[str] = Field(default_factory=lambda: ["claude_code", "codex", "antigravity", "opencode"])
+    rights_status: str = Field(default="confirmed", pattern="^(needs_review|confirmed|restricted|excluded)$")
+    quality_filter: bool = True
+    quarantine: bool = True
+
+
+@router.post("/sources/clean")
+def sources_clean(request: Request, body: CleanRequest):
+    from ..data.cleanup import cleanup_all
+
+    state = _state(request)
+
+    def job(ctx):
+        return cleanup_all(
+            state.db, state.settings, providers=body.sources, rights_status=body.rights_status,
+            quality_filter=body.quality_filter, quarantine=body.quarantine,
+            progress=lambda pct, msg: ctx.progress(pct, msg), cancel=ctx.cancel_event,
+        )
+
+    return {"job_id": state.runner.submit("sources.clean", job, input_data={"sources": body.sources}, heavy=True)}
+
+
+@router.get("/tune/profile/{model_id}")
+def tune_profile(request: Request, model_id: str):
+    from ..tuning import profile_for
+
+    state = _state(request)
+    profile = profile_for(state.db, model_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail={"code": "no_profile", "message": "No Vulkan profile for this model."})
+    return {"profile": profile}
+
+
+class UnifiedRequest(BaseModel):
+    dataset_id: str
+    model_path: str
+    max_steps: int = Field(default=20, ge=1, le=5000)
+    quant: str = "Q4_K_M"
+
+
+@router.post("/training/unified")
+def training_unified(request: Request, body: UnifiedRequest):
+    from ..training.unified import run_unified
+
+    state = _state(request)
+
+    def job(ctx):
+        return run_unified(
+            state.db, state.settings, model_path=body.model_path, dataset_id=body.dataset_id,
+            options={"max_steps": body.max_steps, "quant": body.quant},
+            progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event,
+        )
+
+    return {"job_id": state.runner.submit("training.unified", job, input_data={"dataset_id": body.dataset_id}, heavy=True)}
+
+
 # ---------------------------------------------------------------------------
 # Training algorithms / playbook
 # ---------------------------------------------------------------------------
@@ -252,6 +309,7 @@ class AutoRequest(BaseModel):
     patience: int = Field(default=3, ge=1, le=50)
     algorithm: str = Field(default="auto", pattern="^(auto|dpo|distill|int4)$")
     teacher: str = Field(default="local", pattern="^(local|gateway)$")
+    streaming: bool = False
 
 
 @router.post("/training/auto")
@@ -274,6 +332,7 @@ def training_auto(request: Request, body: AutoRequest):
             return create_int4_run(
                 state.db, config, job_id=ctx.job_id, output_dir=output,
                 progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event,
+                streaming=body.streaming,
             )
         if body.algorithm == "dpo":
             return run_dpo(state.db, config, output_dir=output, progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event)

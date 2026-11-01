@@ -1,4 +1,4 @@
-# HCS Foundry v3
+# HCS Foundry v4
 
 **Your local AI model lab. Built to learn, tested to improve.**
 
@@ -9,6 +9,18 @@ No telemetry. No cloud fallback. Nothing leaves the machine unless you explicitl
 <p align="center">
   <img src="docs/screenshots/pipeline.png" alt="Pipeline" width="880" />
 </p>
+
+## What is new in v4
+
+| Feature | State | Proof |
+|---|---|---|
+| **Streaming INT4 loader** — quantize while reading shards, no fp32 peak | working, 4B run pending | 0.6B streaming run: 196 layers, loss 5.72 → 4.89 |
+| **Unified auto trainer** — decides SFT vs INT4, then train → merge → export → quantize | working | `decide()` tests + chain implementation |
+| **Full chat-log cleanup** — import, redact, filter, freeze, quarantine, report | working | 79 imported, 75 included, 4 excluded, frozen hash, originals untouched |
+| **Repo-fix benchmark** — model repairs a file, tests run in a per-case venv | working | 3 cases, 10 tests |
+| **Agentic benchmark** — JSON file tasks in a sandbox with venv execution | working | 3 cases, deterministic checks |
+| **SWE-bench adapter** — official JSONL shape, per-instance venv | partial | runs local checkouts; official assets not bundled (`not_run`) |
+| **Vulkan profile reuse** — tuned profile recorded in benchmark metadata | working | `tune apply`, `/tune/profile/{id}` |
 
 ## What is new in v3
 
@@ -104,7 +116,7 @@ AMD Ryzen 7 7735HS, Radeon 680M (unified memory, **0 B dedicated VRAM**), 19.8 G
 ## Testing
 
 ```bash
-cd server && python -m pytest -q      # 149 tests
+cd server && python -m pytest -q      # 165 tests
 cd web && npx vitest run              # 7 tests (incl. i18n parity)
 cd web && npx playwright test         # 7 E2E tests (service running)
 ```

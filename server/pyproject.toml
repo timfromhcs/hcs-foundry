@@ -1,6 +1,6 @@
 [project]
 name = "hcs-foundry"
-version = "3.0.0"
+version = "4.0.0"
 description = "HCS Foundry — local-first AI model lab and training workbench"
 requires-python = ">=3.11"
 dependencies = [

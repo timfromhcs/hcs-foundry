@@ -18,7 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .db import Database, new_id, utc_now
+from ..db import Database, new_id, utc_now
+
+from . import agentic, repo_fix, swebench
 
 SUITE_VERSION = "1.0.0"
 COMPARABILITY = "project-specific smoke"
@@ -143,6 +145,44 @@ def suite_catalog() -> list[dict]:
             "comparability": COMPARABILITY,
         },
         {
+            "id": "repo_fix",
+            "name": "Repo fix (venv)",
+            "version": SUITE_VERSION,
+            "kind": "deterministic",
+            "description": "The model repairs a buggy file; the tests run in a per-case virtual environment.",
+            "cases": len(repo_fix.CASES),
+            "requires": ["loaded model", "python venv"],
+            "available": True,
+            "comparability": COMPARABILITY,
+        },
+        {
+            "id": "agentic",
+            "name": "Agentic file tasks",
+            "version": SUITE_VERSION,
+            "kind": "deterministic",
+            "description": "Multi-step file tasks answered as JSON, applied in a sandbox and verified.",
+            "cases": len(agentic.CASES),
+            "requires": ["loaded model", "python venv"],
+            "available": True,
+            "comparability": COMPARABILITY,
+        },
+        {
+            "id": "swebench",
+            "name": "SWE-bench (official format)",
+            "version": SUITE_VERSION,
+            "kind": "external",
+            "description": "Official JSONL instances applied to local checkouts and tested in a venv.",
+            "cases": None,
+            "requires": ["instances JSONL", "local repository checkouts", "python venv"],
+            "available": False,
+            "external": True,
+            "unavailable_reason": (
+                "Official SWE-bench assets are not bundled. Provide an instances JSONL and local checkouts; "
+                "the adapter then runs each instance in its own venv."
+            ),
+            "comparability": COMPARABILITY,
+        },
+        {
             "id": "ui_regression",
             "name": "UI route & accessibility regression",
             "version": SUITE_VERSION,
@@ -241,7 +281,7 @@ def _check_instruction(case: dict, text: str) -> tuple[bool, str]:
         except (json.JSONDecodeError, AttributeError) as exc:
             return False, f"invalid JSON: {exc}"
     if check == "language":
-        from .data.pipeline import detect_language
+        from ..data.pipeline import detect_language
 
         detected = detect_language(text)
         return detected == expected, f"expected language {expected}, detected {detected}"
@@ -286,6 +326,8 @@ def run_suite(
 ) -> dict:
     if suite_id == "ui_regression":
         raise ValueError("the UI suite is executed by Playwright from web/, not by the local service")
+    if suite_id == "swebench":
+        raise ValueError("SWE-bench needs an instances JSONL and local checkouts; use the CLI adapter")
 
     started = time.time()
     run_id = new_id("bench")
@@ -327,6 +369,10 @@ def run_suite(
         cases, metrics = _run_instruction(ctx)
     elif suite_id == "codegen_exec":
         cases, metrics = _run_codegen(ctx)
+    elif suite_id == "repo_fix":
+        cases, metrics = repo_fix.run_suite(server, progress=progress, cancel=cancel)
+    elif suite_id == "agentic":
+        cases, metrics = agentic.run_suite(server, progress=progress, cancel=cancel)
     else:
         raise ValueError(f"unknown suite: {suite_id}")
 
@@ -368,6 +414,7 @@ def run_suite(
             "ram_bytes": ((profile or {}).get("memory") or {}).get("total_bytes"),
         },
         "config": config or {},
+        "vulkan_profile": (db.get_setting("vulkan_profiles", {}) or {}).get((model or {}).get("id") or ""),
         "cases": cases,
         "aggregate": aggregate,
         "duration_seconds": round(time.time() - started, 2),

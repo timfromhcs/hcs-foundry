@@ -750,6 +750,9 @@ export const en = {
   'pipeline.requires_model': 'Select a model first.',
   'pipeline.note_4b': 'A 4B fine-tune is refused on this machine: about 17 GB of fp32 weights versus ~5.6 GB free.',
   'pipeline.int4': 'INT4 (QLoRA)',
+  'pipeline.clean': 'Clean all logs',
+  'pipeline.clean_note': 'Import, redact, filter, freeze and write a quarantine copy. Originals are never modified.',
+  'pipeline.full_train': 'Full local train',
 } as const
 
 export type TranslationKey = keyof typeof en
