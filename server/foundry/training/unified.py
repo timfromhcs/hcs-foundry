@@ -45,9 +45,15 @@ def decide(db: Database, settings: Settings, *, model_path: str, dataset_id: str
         algorithm = "sft"
         reason = "fp32 load fits the safe envelope"
         estimate = fp32
-    elif int4["fits"] and weights >= INT4_MIN_BYTES:
+        offload = False
+    elif weights >= INT4_MIN_BYTES:
         algorithm = "int4"
-        reason = "fp32 does not fit; streaming INT4 does"
+        offload = not int4["fits"]
+        reason = (
+            "fp32 does not fit; streaming INT4 does"
+            if not offload
+            else "fp32 and in-RAM INT4 do not fit; the disk-backed INT4 store does"
+        )
         estimate = int4
     else:
         return {
@@ -72,6 +78,7 @@ def decide(db: Database, settings: Settings, *, model_path: str, dataset_id: str
         "ok": True,
         "algorithm": algorithm,
         "reason": reason,
+        "offload": offload,
         "config": config,
         "signature": signature,
         "playbook_seeded": bool(suggestion),
@@ -138,7 +145,7 @@ def run_unified(
             train_result = create_int4_run(
                 db, config, job_id=None, output_dir=output,
                 progress=lambda pct, msg: progress(5 + pct * 0.45, msg) if progress else None,
-                log=log, cancel=cancel, streaming=True,
+                log=log, cancel=cancel, streaming=True, offload=decision.get("offload"),
             )
         else:
             train_result = run_auto(
@@ -156,6 +163,8 @@ def run_unified(
             "loss_first": manifest.get("loss_first"),
             "loss_last": manifest.get("loss_last"),
             "best_eval_loss": manifest.get("best_eval_loss"),
+            "peak_rss_mb": (manifest.get("memory") or {}).get("peak_rss_mb"),
+            "offload": manifest.get("offload"),
         })
     except Exception as exc:  # noqa: BLE001
         record("train", "failed", {"error": str(exc)[:400]})

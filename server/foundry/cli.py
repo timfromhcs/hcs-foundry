@@ -781,19 +781,30 @@ def cmd_train_int4(args) -> int:
         eval_samples=args.eval_samples,
     )
     output = Path(args.output).expanduser() if args.output else state.settings.training_dir / f"int4_{int(time.time())}"
+    offload = True if getattr(args, "offload", False) else (False if getattr(args, "no_offload", False) else None)
     try:
         result = create_int4_run(
             state.db, config, job_id=None, output_dir=output,
             progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
             log=(None if args.json else print),
             streaming=args.streaming,
+            offload=offload,
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(str(exc))
     if not args.json:
         print()
     manifest = result["manifest"]
-    _print(result, args.json, f"int4 run {result['run_id']}: {manifest['steps']} steps, loss {manifest['loss_first']} → {manifest['loss_last']}, adapter {manifest['adapter_dir']}")
+    mode = "offload(disk)" if manifest.get("offload") else ("streaming" if manifest.get("streaming") else "fp32-peak")
+    peak = (manifest.get("memory") or {}).get("peak_rss_mb")
+    _print(
+        result,
+        args.json,
+        f"int4 run {result['run_id']}: {manifest['steps']} steps, {mode}, "
+        f"loss {manifest['loss_first']} → {manifest['loss_last']}"
+        + (f", peak RSS {peak:.0f} MB" if peak else "")
+        + f", adapter {manifest['adapter_dir']}",
+    )
     return 0
 
 
@@ -1071,6 +1082,8 @@ def build_parser() -> argparse.ArgumentParser:
     t_int4.add_argument("--eval-every", type=int, default=0)
     t_int4.add_argument("--eval-samples", type=int, default=4)
     t_int4.add_argument("--streaming", action="store_true", help="quantize while loading (avoids the fp32 peak)")
+    t_int4.add_argument("--offload", action="store_true", help="force the disk-backed INT4 store (memory-mapped)")
+    t_int4.add_argument("--no-offload", action="store_true", help="keep the INT4 weights in RAM even if the estimate does not fit")
     t_int4.add_argument("--output", default=None)
     t_int4.add_argument("--json", action="store_true")
     t_int4.set_defaults(func=cmd_train_int4)

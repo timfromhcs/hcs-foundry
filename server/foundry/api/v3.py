@@ -310,6 +310,7 @@ class AutoRequest(BaseModel):
     algorithm: str = Field(default="auto", pattern="^(auto|dpo|distill|int4)$")
     teacher: str = Field(default="local", pattern="^(local|gateway)$")
     streaming: bool = False
+    offload: bool | None = None  # None = automatic when the RAM estimate does not fit
 
 
 @router.post("/training/auto")
@@ -332,7 +333,7 @@ def training_auto(request: Request, body: AutoRequest):
             return create_int4_run(
                 state.db, config, job_id=ctx.job_id, output_dir=output,
                 progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event,
-                streaming=body.streaming,
+                streaming=body.streaming, offload=body.offload,
             )
         if body.algorithm == "dpo":
             return run_dpo(state.db, config, output_dir=output, progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event)

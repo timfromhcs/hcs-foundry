@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -104,7 +105,71 @@ def test_streaming_training_runs(db, tmp_path: Path):
     manifest = train_int4(db, config, output_dir=tmp_path / "int4s", streaming=True)
     assert manifest["kind"] == "int4_lora_sft"
     assert manifest["resources"]["streaming"] is True
+    assert manifest["streaming"] is True
     assert manifest["steps"] == 2
+
+
+def test_streaming_manifest_records_measured_memory_and_honest_note(db, tmp_path: Path):
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+    config = SFTConfig(
+        model_path=str(model_dir),
+        dataset_id=dataset_id,
+        max_steps=1,
+        max_seq_len=24,
+        grad_accum=1,
+        lora_r=2,
+        lora_alpha=4,
+        learning_rate=1e-3,
+        target_modules=["c_attn", "c_proj"],
+    )
+    manifest = train_int4(db, config, output_dir=tmp_path / "int4m", streaming=True)
+    memory = manifest["memory"]
+    assert memory["peak_rss_mb"] > 0
+    assert memory["samples"] >= 1
+    assert "never resident" in manifest["note"]
+    assert "fp32 peak" not in manifest["note"]
+
+
+def test_non_streaming_note_still_discloses_the_fp32_load_peak(db, tmp_path: Path):
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+    config = SFTConfig(
+        model_path=str(model_dir),
+        dataset_id=dataset_id,
+        max_steps=1,
+        max_seq_len=24,
+        grad_accum=1,
+        lora_r=2,
+        lora_alpha=4,
+        learning_rate=1e-3,
+        target_modules=["c_attn", "c_proj"],
+    )
+    manifest = train_int4(db, config, output_dir=tmp_path / "int4f")
+    assert manifest["streaming"] is False
+    assert "fp32 model once" in manifest["note"]
+
+
+def test_peak_rss_sampler_observes_a_growing_process():
+    from foundry.training.memory import PeakRSS
+
+    sampler = PeakRSS(interval=0.01).start()
+    baseline = sampler.peak_rss_mb
+    try:
+        import torch
+
+        ballast = torch.ones(32 * 1024 * 1024, dtype=torch.float32)  # 128 MB
+        assert float(ballast.sum()) == float(32 * 1024 * 1024)
+        for _ in range(200):
+            if sampler.peak_rss_mb > baseline + 8:
+                break
+            time.sleep(0.01)
+        report = sampler.stop().report()
+    finally:
+        sampler.stop()
+    assert report["peak_rss_mb"] > baseline, "sampler did not observe the allocation"
+    assert report["min_available_mb"] is not None
+    assert "peak_private_mb" in report
 
 
 def test_int4_resource_estimate_is_smaller_than_fp32(tmp_path: Path):

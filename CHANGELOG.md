@@ -2,6 +2,50 @@
 
 All notable changes to HCS Foundry.
 
+## [4.1.0] — 2026-11-01
+
+Closes the gaps the v4.0 release left open. No new product surface.
+
+### Added
+
+- **Disk-backed INT4 store** (`foundry/training/offload.py`): the quantized model is written
+  once to `weights.u8` + `scales.f32` + `rest.f32` and loaded with `mmap`, so the weights are
+  file-backed pages instead of anonymous RAM and the OS page cache becomes the RAM buffer.
+  `train int4 --offload/--no-offload`, `POST /training/auto {offload}`, and `train unified`
+  picks it automatically when fp32 and in-RAM INT4 both do not fit.
+- **Measured memory in every INT4 manifest**: `memory.peak_rss_mb`, `start_rss_mb`,
+  `min_available_mb` (psutil sampler in `foundry/training/memory.py`) next to the estimate.
+- **Checkpoint key normalisation**: `model.language_model.*` is mapped onto the text-only
+  module tree, unresolved subtrees (vision tower, MTP head) are skipped *and reported*, and
+  the meta-device check still fails the load when a needed weight is missing.
+- **Hybrid-architecture LoRA targets**: `in_proj_qkv`, `in_proj_z`, `out_proj` are part of the
+  default INT4 targets, so Qwen3-Next/Qwen3.5-style linear-attention layers are quantized
+  instead of staying fp32.
+- **Stable landing site**: Vercel project `hcs-foundry-site`, production URL
+  <https://hcs-foundry-site.vercel.app>, `.vercelignore` limited to `site/`.
+
+### Fixed
+
+- INT4 manifests claimed "loading still needs the fp32 peak" even for streaming runs.
+- The INT4 memory estimate assumed 1.2 GiB of fp32 leftovers, which is wrong for models with
+  a 248k vocabulary and a vision tower; it now derives the embedding size from the config.
+- A store built with a different target set could be silently reused (identity now includes
+  the requested targets).
+
+### Verified
+
+- 178 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.
+- 4B checkpoint (`Qwen3.8-4B-Distill`, 8.7 GB safetensors, 18.0 GiB in fp32) trained through
+  the disk-backed store on a machine with ~6 GiB available RAM — numbers in
+  `docs/evidence/v41_int4_4b.md`.
+- Landing page: HTTP 200, assets 200, security headers, `<title>HCS Foundry — local AI model lab</title>`.
+
+### Still open
+
+- **Official SWE-bench**: dataset and checkouts are not bundled (`not_run` with reason).
+- **Vulkan training**: still no PyTorch Vulkan backend; Vulkan stays an inference path.
+- **Quality at 4B**: the pipeline is proven, the model quality is not.
+
 ## [4.0.0] — 2026-11-01
 
 ### Added

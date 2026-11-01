@@ -179,7 +179,7 @@ footer .row{gap:20px}
 
 <main id="top">
   <div class="wrap hero">
-    <span class="eyebrow">● v4.0.0 · local-first · MIT</span>
+    <span class="eyebrow">● v4.1.0 · local-first · MIT</span>
     <h1 style="margin-top:22px">Your local AI model lab.<br><span style="color:var(--accent)">Built to learn, tested to improve.</span></h1>
     <p class="lead">Pull GGUF models from Hugging Face, run them on Vulkan, clean your own agent logs, fine-tune LoRA or INT4, export and quantize GGUF, convert dense models to MoE, and benchmark coding and agentic tasks — all on one machine.</p>
     <div class="cta">
@@ -241,7 +241,7 @@ footer .row{gap:20px}
         <div class="step"><b>Report</b>JSON + MD</div>
       </div>
       <div class="grid g2" style="margin-top:22px">
-        <div class="card reveal"><h3>Unified auto trainer</h3><p>Decides between fp32 SFT and streaming INT4 from model size, free RAM and the measured playbook, then runs the whole chain. No configuration guesswork.</p></div>
+        <div class="card reveal"><h3>Unified auto trainer</h3><p>Decides between fp32 SFT, streaming INT4 and a disk-backed INT4 store from model size, free RAM and the measured playbook, then runs the whole chain. No configuration guesswork.</p></div>
         <div class="card reveal"><h3>Full log cleanup</h3><p>Discovers Claude Code, Codex, Antigravity and OpenCode sessions, redacts secrets, filters low-quality records, freezes with a holdout and writes a quarantine copy. Originals are never modified.</p></div>
       </div>
     </div>
@@ -263,12 +263,13 @@ footer .row{gap:20px}
             <tr><td><b>Vulkan sweep</b></td><td>51.4 → 107.8 tok/s (2.1×)</td><td class="num">ngl 0 → 99</td></tr>
             <tr><td><b>Auto SFT</b></td><td>eval 4.344 → 4.233</td><td class="num">6 steps</td></tr>
             <tr><td><b>INT4 SFT</b></td><td>loss 5.72 → 4.89</td><td class="num">196 layers</td></tr>
+            <tr><td><b>4B INT4, disk-backed</b></td><td>loss 4.45 → 3.55 in 51 s</td><td class="num">200 layers, 4.57 GB store</td></tr>
             <tr><td><b>4B Q4_K_M</b></td><td>loads and answers</td><td class="num">ctx 512, Vulkan</td></tr>
           </tbody>
         </table>
       </div>
       <div class="callout warn reveal" style="margin-top:18px">
-        <div><b>Honest limits.</b> A full 4B/8B fine-tune is refused on this hardware: the 4B model needs ~17.4 GB in fp32 against ~5.6 GB free. Vulkan accelerates inference, not training. Official SWE-bench assets are not bundled.</div>
+        <div><b>Honest limits.</b> A <i>quality</i> 4B/8B fine-tune is out of reach here: 18.0 GiB in fp32 against ~11 GiB available. A 4B run is possible only through the disk-backed INT4 store, two steps at a time, and it is not a finished model. Vulkan accelerates inference, not training. Official SWE-bench assets are not bundled.</div>
       </div>
     </div>
   </section>
@@ -347,11 +348,11 @@ foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M</pre></div>
     <div class="wrap">
       <div class="section-head reveal"><h2>What it does not do</h2><p>Documented instead of hidden.</p></div>
       <div class="grid g3">
-        <div class="card reveal"><h3>No 4B/8B full fine-tune here</h3><p>fp32 loading needs ~17.4 GB for 4B; this machine has ~5.6 GB free. The unified trainer refuses with numbers.</p></div>
+        <div class="card reveal"><h3>No 4B/8B quality fine-tune here</h3><p>fp32 loading needs 18.0 GiB for 4B; this machine has ~11 GiB available. The disk-backed INT4 store makes a 4B run <i>possible</i> (proven for a few steps), but not a useful one — and the trainer says so with numbers instead of pretending.</p></div>
         <div class="card reveal"><h3>No Vulkan training</h3><p>PyTorch has no Vulkan backend. Vulkan is used for inference and tuning only.</p></div>
         <div class="card reveal"><h3>No GGUF → HF conversion</h3><p>Only GGUF→F16 requantization is available; the toolchain has no GGUF→safetensors converter.</p></div>
       </div>
-      <div class="callout reveal" style="margin-top:18px"><div><b>Roadmap.</b> Streaming INT4 at 4B, GGUF→HF conversion, official SWE-bench assets with isolation, and a verified Vulkan/ROCm training backend when the frameworks support it.</div></div>
+      <div class="callout reveal" style="margin-top:18px"><div><b>Roadmap.</b> GGUF→HF conversion, official SWE-bench assets with isolation, a verified Vulkan/ROCm training backend when the frameworks support it, and a paired web demo for the local service.</div></div>
     </div>
   </section>
 

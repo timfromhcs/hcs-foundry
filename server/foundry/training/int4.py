@@ -6,8 +6,9 @@ adapters are trained and stored in fp32. This works on CPU and needs no CUDA.
 
 Honest limits:
 
-* the current loader still materialises the model in fp32 once, so the peak memory
-  during *loading* is the fp32 size; the INT4 saving applies to the training phase,
+* the non-streaming loader materialises the model in fp32 once, so the peak memory
+  during *loading* is the fp32 size; ``streaming=True`` avoids that peak by quantizing
+  while reading the shards (measured peak RSS is written to the manifest),
 * dequantization costs throughput; it is a memory trade, not a speed feature.
 """
 
@@ -23,10 +24,18 @@ from typing import Callable
 import psutil
 
 from ..db import Database, new_id, utc_now
+from .memory import PeakRSS
 from .sft import SFTConfig, build_eval_texts, build_examples, estimate_resources
 
 GROUP_SIZE = 64
-DEFAULT_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+# Dense attention + MLP, plus the hybrid/linear-attention projections used by
+# Qwen3-Next/Qwen3.5-style models (in_proj_qkv, in_proj_z, out_proj). Names that do not
+# exist in a given architecture are simply ignored.
+DEFAULT_TARGETS = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+    "in_proj_qkv", "in_proj_z", "out_proj",
+]
 
 
 def _torch():
@@ -81,31 +90,67 @@ def int4_size_bytes(weight) -> dict:
     }
 
 
+_INT4_MATMUL = None
+
+
+def _int4_matmul():
+    """Build (once) the autograd function that recomputes the dequantization in backward.
+
+    Dequantizing inside a normal forward pass would retain every fp32 weight matrix until the
+    backward pass finishes — 14 GiB for a 4B model. This function saves only the packed INT4
+    tensors and dequantizes again during backward, so peak memory stays at roughly one layer
+    while the base weights remain frozen.
+    """
+    global _INT4_MATMUL
+    if _INT4_MATMUL is not None:
+        return _INT4_MATMUL
+    torch, _, F = _torch()
+
+    class _Int4Matmul(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x, packed, scales, shape, bias):
+            weight = dequantize_int4(packed, scales, shape, x.dtype)
+            ctx.save_for_backward(x, packed, scales)
+            ctx.shape = shape
+            return F.linear(x, weight, bias)
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            x, packed, scales = ctx.saved_tensors
+            weight = dequantize_int4(packed, scales, ctx.shape, x.dtype)
+            return grad_output @ weight, None, None, None, None
+
+    _INT4_MATMUL = _Int4Matmul
+    return _INT4_MATMUL
+
+
 class Int4Linear:
-    """Factory for a frozen 4-bit linear layer."""
+    """A frozen 4-bit linear layer.
+
+    ``packed`` and ``scales`` may be ordinary in-RAM tensors (quantized at load time) or
+    read-only views onto a memory-mapped INT4 store; both share the same forward pass.
+    """
 
     @staticmethod
-    def from_parts(weight, bias, out_features: int, in_features: int):
+    def from_store(packed, scales, shape, bias=None):
         torch, nn, F = _torch()
 
         class _Int4Linear(nn.Module):
             def __init__(self):
                 super().__init__()
-                w = weight.detach()
-                if w.shape[0] != out_features:
-                    w = w.t().contiguous()
-                packed, scales, shape = quantize_int4(w)
                 self.register_buffer("packed", packed)
                 self.register_buffer("scales", scales)
                 self.shape = shape
-                self.in_features = int(in_features)
-                self.out_features = int(out_features)
+                self.in_features = int(shape[1])
+                self.out_features = int(shape[0])
                 if bias is not None:
                     self.register_buffer("bias", bias.detach().clone())
                 else:
                     self.bias = None
 
             def forward(self, x):
+                if torch.is_grad_enabled() and x.requires_grad:
+                    return _int4_matmul().apply(x, self.packed, self.scales, self.shape, self.bias)
                 weight_t = dequantize_int4(self.packed, self.scales, self.shape, x.dtype)
                 return F.linear(x, weight_t, self.bias)
 
@@ -113,6 +158,14 @@ class Int4Linear:
                 return f"in={self.in_features}, out={self.out_features}, int4"
 
         return _Int4Linear()
+
+    @staticmethod
+    def from_parts(weight, bias, out_features: int, in_features: int):
+        w = weight.detach()
+        if w.shape[0] != out_features:
+            w = w.t().contiguous()
+        packed, scales, shape = quantize_int4(w)
+        return Int4Linear.from_store(packed, scales, shape, bias=bias)
 
     @staticmethod
     def build(linear, group: int = GROUP_SIZE):
@@ -194,6 +247,67 @@ def _shard_paths(model_path: Path) -> list[Path]:
     return shards
 
 
+# Wrapper segments that multimodal / nested checkpoints put around the language model.
+WRAPPER_SEGMENTS = ("language_model", "text_model", "text_transformer", "language_model.model")
+
+
+def _resolve_key(key: str, available: set[str]) -> str | None:
+    """Map a checkpoint tensor name onto a key of the instantiated model.
+
+    Vision-language checkpoints store the language model under ``model.language_model.*``
+    while a text-only ``...ForCausalLM`` instantiates ``model.*``. Dropping the wrapper
+    segment lets the same loader handle both layouts. Anything that still does not match
+    (vision tower, multi-token-prediction head) is reported as skipped, and the hard
+    meta-device check afterwards guarantees that no needed weight is silently missing.
+    """
+    if key in available:
+        return key
+    parts = key.split(".")
+    for index, part in enumerate(parts[:-1]):
+        if index == 0 or part not in WRAPPER_SEGMENTS:
+            continue
+        candidate = ".".join(parts[:index] + parts[index + 1 :])
+        if candidate in available:
+            return candidate
+    return None
+
+
+def _skip_prefix(key: str) -> str:
+    parts = key.split(".")
+    if len(parts) > 2:
+        return ".".join(parts[:2])
+    return parts[0]
+
+
+def build_meta_model(model_path: str | Path, dtype=None):
+    """Instantiate the architecture shell on the ``meta`` device.
+
+    ``dtype`` is forced on the config (and its nested text/vision configs) because some
+    checkpoints declare bf16; without this, accelerate would convert every stored tensor to
+    bf16 on assignment, which both copies the mmap'd data into anonymous RAM and changes the
+    numerics of the quantized path.
+    """
+    torch, _, _ = _torch()
+    from accelerate import init_empty_weights
+    from transformers import AutoConfig, AutoModelForCausalLM
+
+    dtype = dtype or torch.float32
+    config = AutoConfig.from_pretrained(str(model_path))
+    for candidate in (config, getattr(config, "text_config", None), getattr(config, "vision_config", None)):
+        if candidate is None:
+            continue
+        try:
+            candidate.dtype = dtype
+        except (AttributeError, TypeError, ValueError):
+            pass
+    with init_empty_weights():
+        try:
+            model = AutoModelForCausalLM.from_config(config, dtype=dtype)
+        except TypeError:  # older transformers only knows torch_dtype
+            model = AutoModelForCausalLM.from_config(config, torch_dtype=dtype)
+    return model, config
+
+
 def load_int4_streaming(
     model_path: str | Path,
     *,
@@ -209,17 +323,13 @@ def load_int4_streaming(
     materialised at once.
     """
     torch, nn, _ = _torch()
-    from accelerate import init_empty_weights
     from accelerate.utils import set_module_tensor_to_device
     from safetensors import safe_open
-    from transformers import AutoConfig, AutoModelForCausalLM
 
     path = Path(model_path).expanduser()
     targets = set(targets or DEFAULT_TARGETS)
     dtype = dtype or torch.float32
-    config = AutoConfig.from_pretrained(str(path))
-    with init_empty_weights():
-        model = AutoModelForCausalLM.from_config(config)
+    model, config = build_meta_model(path, dtype=dtype)
 
     module_names = {name.split(".")[-1] for name, _ in model.named_modules()}
     if not (targets & module_names):
@@ -230,12 +340,19 @@ def load_int4_streaming(
 
     converted = 0
     assigned = 0
+    skipped: dict[str, int] = {}
+    available = set(model.state_dict().keys())
     for shard in _shard_paths(path):
         with safe_open(str(shard), framework="pt") as handle:
             keys = list(handle.keys())
             for key in keys:
-                if key.endswith(".weight"):
-                    module_path = key[: -len(".weight")]
+                resolved = _resolve_key(key, available)
+                if resolved is None:
+                    group = _skip_prefix(key)
+                    skipped[group] = skipped.get(group, 0) + 1
+                    continue
+                if resolved.endswith(".weight"):
+                    module_path = resolved[: -len(".weight")]
                     suffix = module_path.rsplit(".", 1)[-1]
                     if suffix in targets and suffix != "lm_head":
                         parent_path, _, attribute = module_path.rpartition(".")
@@ -257,11 +374,11 @@ def load_int4_streaming(
                         del weight
                         converted += 1
                         continue
-                if key.endswith(".bias"):
-                    module_path = key[: -len(".bias")]
+                if resolved.endswith(".bias"):
+                    module_path = resolved[: -len(".bias")]
                     if module_path.rsplit(".", 1)[-1] in targets:
                         continue  # consumed with the weight
-                set_module_tensor_to_device(model, key, "cpu", value=handle.get_tensor(key), dtype=dtype)
+                set_module_tensor_to_device(model, resolved, "cpu", value=handle.get_tensor(key), dtype=dtype)
                 assigned += 1
 
     try:
@@ -279,7 +396,17 @@ def load_int4_streaming(
     for name, parameter in model.named_parameters():
         if "lora_" in name:
             parameter.requires_grad_(True)
-    return model, {"converted_layers": converted, "assigned_tensors": assigned, "targets": sorted(targets), "streaming": True}
+    try:
+        model.config.use_cache = False
+    except AttributeError:
+        pass
+    return model, {
+        "converted_layers": converted,
+        "assigned_tensors": assigned,
+        "targets": sorted(targets),
+        "streaming": True,
+        "skipped": skipped,
+    }
 
 
 def estimate_int4_resources(model_path: str | Path, config: SFTConfig) -> dict:
@@ -293,18 +420,32 @@ def estimate_int4_resources(model_path: str | Path, config: SFTConfig) -> dict:
             model_config = json.loads(config_path.read_text("utf-8"))
         except (OSError, json.JSONDecodeError):
             model_config = {}
-    hidden = int(model_config.get("hidden_size") or model_config.get("n_embd") or 2048)
-    layers = int(model_config.get("num_hidden_layers") or model_config.get("n_layer") or 24)
+    text_config = model_config.get("text_config") if isinstance(model_config.get("text_config"), dict) else model_config
+    hidden = int(text_config.get("hidden_size") or model_config.get("hidden_size") or model_config.get("n_embd") or 2048)
+    layers = int(text_config.get("num_hidden_layers") or model_config.get("num_hidden_layers") or model_config.get("n_layer") or 24)
+    vocab = int(text_config.get("vocab_size") or model_config.get("vocab_size") or 0)
     quantized = int(weights * 0.25)  # 4 bits + scales, roughly
-    leftovers = 1200 * 1024**2       # embeddings, norms, lm_head in fp32
+    # Everything that stays fp32: the (usually tied) embedding matrix dominates, the rest
+    # of the non-target tensors are approximated from the checkpoint size.
+    embed = vocab * hidden * 4 if vocab else 0
+    others = int(weights * 0.12)
+    vision = 0
+    vision_config = model_config.get("vision_config")
+    if isinstance(vision_config, dict):
+        depth = int(vision_config.get("depth") or 0)
+        v_hidden = int(vision_config.get("hidden_size") or 0)
+        v_inter = int(vision_config.get("intermediate_size") or 0)
+        vision = depth * (4 * v_hidden**2 + 2 * v_hidden * v_inter) * 4
+    leftovers = max(embed + others, 900 * 1024**2)
     activations = config.micro_batch * config.max_seq_len * hidden * layers * 2 * 4
-    low = quantized + leftovers + activations
+    low = quantized + leftovers + vision + activations
     high = int(low * 1.35)
     available = psutil.virtual_memory().available
     return {
         "weights_bytes": weights,
         "quantized_bytes": quantized,
         "leftovers_bytes": leftovers,
+        "vision_bytes": vision,
         "activation_bytes": activations,
         "estimated_low_bytes": int(low),
         "estimated_high_bytes": high,
@@ -312,7 +453,11 @@ def estimate_int4_resources(model_path: str | Path, config: SFTConfig) -> dict:
         "fits": high < available * 0.9,
         "streaming": True,
         "confidence": "low",
-        "note": "Streaming estimate: INT4 weights + fp32 embeddings/norms + activations.",
+        "note": (
+            "Streaming estimate: INT4 weights + fp32 embeddings/norms (and a vision tower "
+            "if the checkpoint has one) + activations. When it does not fit, the disk-backed "
+            "INT4 store keeps the same weights file-backed instead of resident."
+        ),
     }
 
 
@@ -325,6 +470,44 @@ def train_int4(
     log: Callable[[str], None] | None = None,
     cancel=None,
     streaming: bool = False,
+    offload: bool | None = None,
+    store_dir: str | Path | None = None,
+) -> dict:
+    """Train a LoRA adapter on INT4-packed base weights and record the measured peak RSS.
+
+    ``offload=None`` picks the disk-backed INT4 store automatically when the RAM estimate
+    does not fit; ``True`` forces it, ``False`` keeps everything in RAM.
+    """
+    sampler = PeakRSS().start()
+    try:
+        return _train_int4(
+            db,
+            config,
+            output_dir=output_dir,
+            progress=progress,
+            log=log,
+            cancel=cancel,
+            streaming=streaming,
+            offload=offload,
+            store_dir=store_dir,
+            sampler=sampler,
+        )
+    finally:
+        sampler.stop()
+
+
+def _train_int4(
+    db: Database,
+    config: SFTConfig,
+    *,
+    output_dir: Path,
+    progress: Callable[[float, str], None] | None = None,
+    log: Callable[[str], None] | None = None,
+    cancel=None,
+    streaming: bool = False,
+    offload: bool | None = None,
+    store_dir: str | Path | None = None,
+    sampler: PeakRSS,
 ) -> dict:
     torch, nn, _ = _torch()
     try:
@@ -337,12 +520,19 @@ def train_int4(
         raise ValueError(f"base model directory not found: {model_path}")
 
     resources = estimate_int4_resources(model_path, config) if streaming else estimate_resources(model_path, config)
-    if not resources["fits"] and not config.__dict__.get("force"):
+    if offload is True and not streaming:
+        raise ValueError("disk offload needs the streaming INT4 loader (streaming=True)")
+    offload_mode = bool(streaming and (offload if offload is not None else not resources["fits"]))
+    if not resources["fits"] and not offload_mode and not config.__dict__.get("force"):
         raise ValueError(
             "this configuration does not fit the safe memory envelope "
             f"({resources['estimated_high_bytes'] / 1024**3:.1f} GiB estimated, "
             f"{resources['available_bytes'] / 1024**3:.1f} GiB available)."
-            + ("" if streaming else " Enable streaming INT4 to avoid the fp32 load peak.")
+            + (
+                " Enable streaming INT4 to avoid the fp32 load peak."
+                if not streaming
+                else " Use offload to keep the weights on disk instead of in RAM."
+            )
         )
 
     if progress:
@@ -355,8 +545,38 @@ def train_int4(
     eval_texts = build_eval_texts(db, config.dataset_id, config.eval_samples) if config.eval_every else []
 
     if progress:
-        progress(12, "Loading base model (streaming INT4)" if streaming else "Loading base model (fp32 peak)")
-    if streaming:
+        progress(
+            12,
+            "Loading base model (streaming INT4, disk-backed)" if offload_mode
+            else "Loading base model (streaming INT4)" if streaming
+            else "Loading base model (fp32 peak)",
+        )
+    store_meta = None
+    if offload_mode:
+        from .offload import STORE_DIRNAME, load_store_model
+
+        target_store = Path(store_dir).expanduser() if store_dir else output_dir / STORE_DIRNAME
+        model, report = load_store_model(
+            model_path,
+            target_store,
+            r=config.lora_r,
+            alpha=config.lora_alpha,
+            dropout=config.lora_dropout,
+            log=log,
+        )
+        store_meta = {
+            "store_dir": report["store_dir"],
+            "disk_bytes": report["store_disk_bytes"],
+            "fingerprint": report["fingerprint"],
+            "reused": bool(report.get("reused")),
+            "skipped_tensors": report.get("skipped") or {},
+            "note": (
+                "Packed INT4 weights and fp32 leftovers live in memory-mapped files; the OS "
+                "page cache is the RAM buffer. Only LoRA, one dequantized layer and "
+                "activations are anonymous memory."
+            ),
+        }
+    elif streaming:
         model, report = load_int4_streaming(
             model_path,
             targets=config.target_modules,
@@ -467,6 +687,7 @@ def train_int4(
     )
     tokenizer.save_pretrained(str(adapter))
 
+    memory = sampler.report()
     manifest = {
         "kind": "int4_lora_sft",
         "base_model": str(model_path),
@@ -484,10 +705,22 @@ def train_int4(
         "duration_seconds": round(time.time() - started, 2),
         "adapter_dir": str(adapter),
         "quantization": {"scheme": "int4_groupwise_absmax", "group_size": GROUP_SIZE},
+        "streaming": bool(streaming),
+        "offload": store_meta,
         "resources": resources,
+        "memory": memory,
         "note": (
             "Base weights are packed to 4 bits and dequantized per layer in the forward pass. "
-            "Only LoRA adapters are trained. Loading still needs the fp32 peak."
+            "Only LoRA adapters are trained. "
+            + (
+                "Weights are memory-mapped from the disk-backed INT4 store, so they occupy "
+                "file-backed pages instead of anonymous RAM; peak_rss_mb is the measured result."
+                if offload_mode
+                else "The model was quantized shard by shard while loading, so the full fp32 model "
+                "was never resident; peak_rss_mb is the measured result."
+                if streaming
+                else "Loading materialises the fp32 model once, so peak_rss_mb includes that load peak."
+            )
         ),
         "finished_at": utc_now(),
     }
@@ -507,6 +740,8 @@ def create_int4_run(
     log=None,
     cancel=None,
     streaming: bool = False,
+    offload: bool | None = None,
+    store_dir: str | Path | None = None,
 ) -> dict:
     run_id = new_id("trn")
     db.insert(
@@ -518,14 +753,24 @@ def create_int4_run(
             "base_model": config.model_path,
             "backend": "int4_lora_sft",
             "status": "running",
-            "config": json.dumps(config.to_public()),
+            "config": json.dumps({**config.to_public(), "streaming": streaming, "offload": offload}),
             "metrics": "{}",
             "checkpoint_dir": str(output_dir),
             "created_at": utc_now(),
         },
     )
     try:
-        manifest = train_int4(db, config, output_dir=output_dir, progress=progress, log=log, cancel=cancel, streaming=streaming)
+        manifest = train_int4(
+            db,
+            config,
+            output_dir=output_dir,
+            progress=progress,
+            log=log,
+            cancel=cancel,
+            streaming=streaming,
+            offload=offload,
+            store_dir=store_dir,
+        )
     except Exception as exc:
         db.execute(
             "UPDATE training_runs SET status='failed', metrics=?, finished_at=? WHERE id=?",

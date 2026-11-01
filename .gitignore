@@ -5,6 +5,7 @@
 *.pem
 *.key
 *.pfx
+.vercel
 
 # --- Model weights and large artifacts ---
 *.gguf

@@ -1,0 +1,5 @@
+# Only the static landing site is deployed. The local product (server, web app,
+# model weights, datasets and training runs) must never leave this machine.
+*
+!site
+!site/**

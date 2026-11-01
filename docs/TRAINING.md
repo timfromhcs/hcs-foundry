@@ -140,6 +140,44 @@ parameters, loss 5.7211 → 4.8595, eval 4.2595 → 4.1792, 13 s for two steps, 
 foundry train int4 --dataset ds_xxx --model E:/models/Qwen3-0.6B --steps 10 --seq 128
 ```
 
-**Limit:** loading still materialises the model in fp32, so a 4B model needs ~17 GB at
-load time before the INT4 saving applies to training. A streaming INT4 loader is the
-documented next step.
+## Streaming INT4 and the disk-backed store (v4 / v4.1)
+
+Three loading strategies, chosen so that a run is only started when it can finish:
+
+| Mode | Anonymous RAM | Speed | When |
+|---|---|---|---|
+| `fp32` | full fp32 model (18 GiB for 4B) | fastest to load | small models |
+| `streaming` | INT4 weights + fp32 leftovers | medium | fits the envelope |
+| `offload` | LoRA + one dequantized layer + activations | slowest first pass | does not fit |
+
+`streaming` builds the model on the `meta` device and quantizes each target linear while
+reading the shard, so the full fp32 checkpoint is never resident.
+
+`offload` writes the quantized model to disk once and memory-maps it:
+
+```
+int4-store/
+  weights.u8    packed 4-bit nibbles for every target linear
+  scales.f32    one fp32 scale per 64-value group
+  rest.f32      embeddings, norms and the remaining frozen tensors in fp32
+  meta.json     byte offsets, shapes, checkpoint identity
+```
+
+The mapped pages are file-backed, so Windows can drop them instead of swapping, and the
+page cache works as the RAM buffer: hot layers stay resident, cold ones are read again.
+`train int4` accepts `--offload` / `--no-offload`; without a flag the trainer decides from
+its own estimate, and `train unified` picks it when fp32 and in-RAM INT4 both do not fit.
+
+Every manifest records the **measured** peak RSS (`memory.peak_rss_mb`) next to the
+estimate, plus `streaming`, `offload` and the skipped checkpoint subtrees.
+
+```bash
+# automatic: uses the store when the RAM estimate does not fit
+foundry train int4 --dataset ds_xxx --model <path> --steps 2 --seq 128 --streaming
+
+# forced
+foundry train int4 --dataset ds_xxx --model <path> --steps 2 --seq 128 --streaming --offload
+```
+
+The measured 4B run is in [`docs/evidence/v41_int4_4b.md`](evidence/v41_int4_4b.md).
+

@@ -12,13 +12,13 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-4.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-4.1.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
 
 [**Download the .exe**](https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe) ·
-[Website](https://agile-jasper-pcdb33c.tmp.now) ·
+[Website](https://hcs-foundry-site.vercel.app) ·
 [Documentation](docs) ·
 [Benchmarks](#benchmarks) ·
 [Roadmap](#roadmap)
@@ -72,7 +72,7 @@ Three rules drive the code:
 | **Inference** | Supervised `llama-server`, Vulkan offload, streaming, cancel, metrics, auto-tuned `ngl` | ✅ 2.1× measured |
 | **Data Studio** | 5 session adapters, consent gate, redaction, exact + near dedupe, leakage-safe splits, freeze, export | ✅ |
 | **Identity Maker** | One prompt → editable identity card → synthetic dataset → deterministic evaluation | ✅ |
-| **Training** | SFT, DPO, distillation, INT4/QLoRA; OpenEval; auto LR/stop; best checkpoint; playbook | ✅ verified on 0.6B |
+| **Training** | SFT, DPO, distillation, INT4/QLoRA (in-RAM or disk-backed); OpenEval; auto LR/stop; best checkpoint; playbook | ✅ 0.6B + 4B proven |
 | **GGUF out** | Merge adapter → convert to GGUF → quantize Q2–Q8 → verify by inference | ✅ 0.6B end-to-end |
 | **MoEfication** | Dense FFN → N experts + top-k router, forward-checked, memory-guarded | ✅ small scale |
 | **Benchmarks** | Instruction, executed codegen, repo-fix, agentic, SWE-bench-format adapter (venv per case) | ✅ |
@@ -180,14 +180,16 @@ See [docs/CLI.md](docs/CLI.md) for every flag.
 |---|---|---|
 | **SFT / LoRA** | transformers + PEFT, architecture-aware targets, checkpoints, resume | loss 6.04 → 5.01 on 0.6B |
 | **INT4 / QLoRA** | group-wise 4-bit packing, dequantized per layer, LoRA in fp32, no bitsandbytes | 196 layers, loss 5.72 → 4.89 |
+| **INT4 + disk store** | weights memory-mapped from `int4-store/`, dequantize-recompute in backward | 4B, 200 layers, loss 4.45 → 3.55 |
 | **DPO** | synthetic preference pairs, adapter-disabled reference | 2-step smoke |
 | **Distillation** | local or gateway teacher writes answers, student SFT | tested |
 | **Auto** | OpenEval + LR halving + early stop + best checkpoint + playbook | eval 4.344 → 4.233 |
 
-A 4B/8B full fine-tune is **refused** on this hardware: 8.68 GB of BF16 weights become
-~17.4 GB in fp32 against ~5.6 GB free. The unified trainer prints that and stops.
-The streaming INT4 loader is implemented; a completed 4B run is still pending the
-9.32 GB download.
+A 4B/8B *quality* fine-tune is out of reach on this hardware: 8.68 GB of BF16 weights become
+18.0 GB in fp32 against ~11 GB available. What is verified is the mechanism — a 4B checkpoint
+trained through the disk-backed INT4 store for two steps on CPU, with the loss moving
+4.453 → 3.545 and 4.57 GB of weights living in memory-mapped files instead of RAM.
+Details: [docs/evidence/v41_int4_4b.md](docs/evidence/v41_int4_4b.md).
 
 ## Benchmarks
 
@@ -211,6 +213,7 @@ Measured on the test machine (Ryzen 7 7735HS, Radeon 680M, 19.8 GiB):
 | Vulkan sweep | 51.4 → 107.8 tok/s (**2.1×**) |
 | Auto SFT (6 steps) | eval 4.344 → 4.233 |
 | INT4 SFT | loss 5.72 → 4.89 |
+| INT4 SFT, 4B, disk store | 200 layers, loss 4.45 → 3.55 in 51 s, 4.57 GB store, 9.45 GB peak RSS (4.57 GB of it file-backed) |
 | 4B Q4_K_M | loads and answers at ctx 512 |
 
 ## Architecture
@@ -257,29 +260,33 @@ Details: [docs/SECURITY.md](docs/SECURITY.md) · [docs/DATA_AND_PRIVACY.md](docs
 
 ## Honest limitations
 
-- **No 4B/8B full fine-tune on this machine** (fp32 peak ≈ 17.4 GB vs ~5.6 GB free).
+- **No 4B/8B *quality* fine-tune on this machine.** The pipeline runs at 4B scale through the
+  disk-backed INT4 store (a few steps, measured), but a useful run needs many hours of CPU.
+  fp32 loading alone would need ≈ 18 GiB against ~6 GiB available.
 - **No Vulkan training** — PyTorch has no Vulkan backend; Vulkan is inference only.
 - **No GGUF → HF conversion** — only GGUF→F16 requantization is available.
 - **Official SWE-bench assets are not bundled**; the adapter runs local checkouts and
   reports `not_run` otherwise.
-- **INT4 saves memory during training, not during loading** (streaming loader implemented,
-  4B proof pending).
+- **Disk offload costs throughput** — the first pass reads weights from disk; the OS page
+  cache is the RAM buffer, not a residency guarantee.
 
 The full list is in [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/KNOWN_LIMITATIONS.md).
 
 ## Roadmap
 
-- [ ] Completed 4B streaming-INT4 training run with measured peak RSS
+- [x] Completed 4B streaming-INT4 training run with measured peak RSS
+      ([evidence](docs/evidence/v41_int4_4b.md))
+- [x] Permanent Vercel deployment of the landing site
+- [ ] Paired web demo: the deployed page driving a local service through the pairing flow
 - [ ] GGUF → HF safetensors conversion to continue training from a quantized file
 - [ ] Verified Vulkan/ROCm training backend when a framework supports it
 - [ ] Official SWE-bench / Terminal-Bench assets with hardened isolation
-- [ ] Permanent Vercel deployment of the landing site and a paired web demo
 - [ ] More training recipes with measured projections per hardware class
 
 ## Development
 
 ```bash
-cd server && python -m pytest -q      # 165 tests
+cd server && python -m pytest -q      # 178 tests
 cd web && npx vitest run              # 7 tests (incl. i18n parity)
 cd web && npx playwright test         # 7 E2E tests (service must run)
 ```

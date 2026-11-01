@@ -137,10 +137,10 @@ Bounded repair: 3 attempts per failing test, then document and continue.
 
 | WP | Status | Evidence |
 |---|---|---|
-| W1 Streaming INT4 | **done, 4B run pending** | `load_int4_streaming` + tests; 0.6B streaming run loss 5.72 → 4.89, 196 layers. 4B download not finished in this session |
-| W2 Unified trainer | **done** | `training/unified.py` + `decide()` tests; train → merge → export → quantize chain |
+| W1 Streaming INT4 | **done (v4.1)** | `load_int4_streaming` + `memory.peak_rss_mb`; 0.6B loss 5.72 → 4.89, 4B run completed in v4.1 via the disk-backed store (`docs/evidence/v41_int4_4b.md`) |
+| W2 Unified trainer | **done** | `training/unified.py` + `decide()` tests; train → merge → export → quantize chain; v4.1 adds the offload fallback |
 | W3 Log cleanup | **done** | real run: 79 imported, 75 included, 4 excluded, frozen, quarantine copy, originals untouched |
 | W4 Benchmarks | **done** | repo_fix + agentic + SWE-bench adapter with per-instance venv; 10 tests |
 | W5 Vulkan | **done** | stored profile surfaced in benchmark metadata; `tune apply` CLI; profile API |
 | W6 UI/CLI | **done** | Pipeline: Clean logs + Full local train; CLI `logs clean`, `train unified`, `tune apply`, new bench suites |
-| W7 Release | **in progress** | 165 backend tests green, docs, push pending |
+| W7 Release | **done** | tag `v4.0.0` + follow-up site commit, CI green; gaps closed in v4.1 (`docs/plan/V41_PLAN.md`) |
