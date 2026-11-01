@@ -121,3 +121,25 @@ model = PeftModel.from_pretrained(base, "data/training-runs/proof-qwen06b/adapte
 ```
 
 Converting a merged model to GGUF is **not** implemented in v2. That remains an explicit, documented gap rather than a fake button.
+
+## INT4 (QLoRA-style) training
+
+`foundry/training/int4.py` implements 4-bit training without `bitsandbytes`:
+
+- group-wise symmetric absmax quantization (group 64), two nibbles per byte,
+- frozen `Int4Linear` base layers, dequantized per layer in the forward pass,
+- LoRA adapters in fp32, `lora_B` initialised to zero so the delta starts at exactly zero,
+- Conv1D and Linear architectures both supported,
+- custom adapter artifact (`lora_int4.pt`) plus a manifest.
+
+Measured on Qwen3-0.6B with the user's cleaned logs: 196 layers quantized, 2.52 M LoRA
+parameters, loss 5.7211 → 4.8595, eval 4.2595 → 4.1792, 13 s for two steps, peak RSS
+4.86 GB (the fp32 load peak).
+
+```bash
+foundry train int4 --dataset ds_xxx --model E:/models/Qwen3-0.6B --steps 10 --seq 128
+```
+
+**Limit:** loading still materialises the model in fp32, so a 4B model needs ~17 GB at
+load time before the INT4 saving applies to training. A streaming INT4 loader is the
+documented next step.

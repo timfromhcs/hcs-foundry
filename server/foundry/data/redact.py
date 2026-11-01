@@ -24,6 +24,7 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b"), "[REDACTED:SLACK_TOKEN]"),
     ("google_key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "[REDACTED:GOOGLE_KEY]"),
     ("hf_token", re.compile(r"\bhf_[A-Za-z0-9]{30,}\b"), "[REDACTED:HF_TOKEN]"),
+    ("vercel_key", re.compile(r"\bvck_[A-Za-z0-9]{20,}\b"), "[REDACTED:VERCEL_KEY]"),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b"), "[REDACTED:JWT]"),
     ("bearer", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._\-]{20,})"), "Bearer [REDACTED:TOKEN]"),
     ("connection_string", re.compile(r"(?i)\b(?:postgres|mysql|mongodb(?:\+srv)?|redis|amqp)://[^\s\"']+"), "[REDACTED:CONNECTION_STRING]"),

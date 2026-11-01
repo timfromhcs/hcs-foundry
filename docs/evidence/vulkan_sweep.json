@@ -1,0 +1,45 @@
+{
+  "model_id": "mdl_bbf4c1a055649d8d474d",
+  "model_name": "Qwen3 0.6B",
+  "context": 1024,
+  "points": [
+    {
+      "gpu_layers": 0,
+      "batch": 512,
+      "ok": true,
+      "tokens_per_second": 51.38,
+      "ttft_seconds": null,
+      "seconds": 22.39,
+      "error": null
+    },
+    {
+      "gpu_layers": 99,
+      "batch": 512,
+      "ok": true,
+      "tokens_per_second": 107.8,
+      "ttft_seconds": null,
+      "seconds": 2.26,
+      "error": null
+    }
+  ],
+  "best": {
+    "gpu_layers": 99,
+    "batch": 512,
+    "ok": true,
+    "tokens_per_second": 107.8,
+    "ttft_seconds": null,
+    "seconds": 2.26,
+    "error": null
+  },
+  "cpu_baseline": {
+    "gpu_layers": 0,
+    "batch": 512,
+    "ok": true,
+    "tokens_per_second": 51.38,
+    "ttft_seconds": null,
+    "seconds": 22.39,
+    "error": null
+  },
+  "speedup_vs_cpu": 2.1,
+  "note": "Inference only. Training has no Vulkan backend."
+}

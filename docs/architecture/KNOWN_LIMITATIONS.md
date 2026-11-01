@@ -46,3 +46,14 @@ Honest list as of 2026-11-01. Anything not listed as working should be assumed u
 ## Language
 
 21. **de/en/fr are complete for all shipped UI strings.** Additional locales are architecture-ready but not translated.
+
+## v2 additions
+
+22. **Hub downloads are plain HTTP streams.** They are resumable and hash-checked, but there is no parallel chunking or bandwidth scheduler.
+23. **Gated models require a token with accepted terms.** The UI cannot accept the provider's terms for you.
+24. **The executable excludes the ML stack.** Fine-tuning requires the source install; the EXE reports `requires_stack` instead of failing silently.
+25. **A good 3B fine-tune is not achievable on this hardware.** No CUDA/ROCm; a 200-step 3B run at 512 tokens is projected at 15–38 hours on CPU.
+26. **Adapter → GGUF export is not implemented.** Merging and quantizing remain manual.
+27. **The cloud teacher is opt-in and currently blocked by account billing.** It only ever annotates; chat, training and benchmarks stay local.
+28. **Vercel platform setup needs a platform token.** The supplied `vck_` key is an AI Gateway key and cannot create gateway keys or manage teams.
+29. **The standalone build is Windows-only** in this release. The same PyInstaller spec can be adapted for Linux/macOS but was not tested.

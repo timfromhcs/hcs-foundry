@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 APP_NAME = "HCS Foundry"
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 SCHEMA_VERSION = 1
 API_PREFIX = "/api/v1"
 

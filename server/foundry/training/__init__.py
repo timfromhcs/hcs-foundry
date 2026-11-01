@@ -355,6 +355,9 @@ def start_smoke_run(db: Database, settings: Settings, job_id: str | None, progre
 
 from .recipes import project, recipe_catalog, recipe_config
 from .sft import SFTConfig, TrainingUnavailable, create_sft_run, estimate_resources, train_sft
+from .algorithms import run_auto, run_distill, run_dpo
+from .int4 import create_int4_run, train_int4
+from . import playbook
 
 __all__ = [
     "detect_environment",
@@ -372,4 +375,10 @@ __all__ = [
     "recipe_catalog",
     "recipe_config",
     "project",
+    "run_auto",
+    "run_distill",
+    "run_dpo",
+    "create_int4_run",
+    "train_int4",
+    "playbook",
 ]

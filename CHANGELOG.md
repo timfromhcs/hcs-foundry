@@ -2,6 +2,60 @@
 
 All notable changes to HCS Foundry.
 
+## [3.0.0] - 2026-11-01
+
+### Added
+
+- **GGUF export** from safetensors via the discovered `convert_hf_to_gguf.py`, with disk
+  precheck, streaming log capture and cancellation.
+- **Quantization** wrapper around `llama-quantize` for F16/BF16/Q8_0/Q6_K/Q5_K_M/Q4_K_M/
+  Q4_K_S/Q3_K_M/Q2_K, with size/ratio recording.
+- **GGUF upcast** to F16/BF16, explicitly labelled as requantization because no
+  GGUF→HF converter exists in the toolchain.
+- **MoEfication**: dense FFN → N experts with a top-k router, architecture-aware,
+  forward-pass verified, with a memory projection that refuses impossible conversions.
+- **INT4 (QLoRA-style) training** without bitsandbytes: group-wise absmax packing,
+  `Int4Linear`, LoRA adapters in fp32, custom adapter artifact and manifest.
+- **Training algorithms**: SFT, DPO with synthetic pairs (adapter-disabled reference),
+  and distillation from a local or gateway teacher.
+- **OpenEval** during training, best-checkpoint saving, **auto-decision** (LR reduction,
+  early stop) and a **training playbook** that records measured recipes and seeds the
+  next automatic run.
+- **Vulkan auto-tuning** sweep over GPU layers and batch size, stored per model.
+- **Local log discovery/import** for Claude Code, Codex (including zstd sessions),
+  Antigravity transcripts and OpenCode (via `session export --sanitize`), with a
+  guarantee that originals are never modified.
+- **All-in-one pipeline** with ordered, resumable stages and a JSON + Markdown report.
+- **Pipeline page** and `gguf`, `moe`, `tune`, `logs`, `pipeline`, `train int4/auto/dpo/distill`
+  CLI commands; new `/gguf`, `/moe`, `/tune`, `/sources`, `/pipeline` API routes.
+- `docs/plan/V3_PLAN.md`, `docs/evidence/v3_*.md`.
+
+### Fixed
+
+- Reasoning-only models returned an empty CLI answer; `complete()` now returns
+  `reasoning` separately and the CLI prints it with a hint.
+- `vercel_key` (`vck_…`) added to the redaction patterns.
+- Codex `.jsonl.zst` sessions are decompressed into the import area instead of being
+  silently skipped.
+- Windows `.CMD` shims are executed through `cmd /c` for OpenCode imports.
+- Antigravity transcripts get a dedicated parser that ignores private `thinking` fields.
+
+### Verified
+
+- 149 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.
+- 0.6B GGUF export + Q4_K_M quantization + inference (113 tok/s).
+- Vulkan sweep: 51.4 → 107.8 tok/s (2.1×).
+- Auto SFT on 72 imported records: eval 4.344 → 4.233, playbook entry recorded.
+- INT4 SFT: 196 layers quantized, loss 5.72 → 4.86, adapter saved.
+- 4B Q4_K_M loads and answers on Vulkan at context 512.
+
+### Blocked (documented, not faked)
+
+- Complete 4B/8B fine-tune on this machine (fp32 load peak ≈ 17.4 GB vs ~5.6 GB free).
+- Vulkan-accelerated training (no PyTorch Vulkan backend).
+- GGUF → HF safetensors conversion (no converter in the discovered toolchain).
+- 4B MoE with four experts (projected memory exceeds RAM).
+
 ## [2.0.0] — 2026-11-01
 
 ### Added

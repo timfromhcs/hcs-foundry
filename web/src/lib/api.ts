@@ -602,6 +602,51 @@ class ApiClient {
     return this.request<Record<string, unknown>>('/gateway/test', { method: 'POST', body: {} })
   }
 
+  // -- v3: gguf / moe / tuning / sources / pipeline ----------------------
+  ggufTools() {
+    return this.request<{ toolchain: Record<string, string | null>; ready: boolean }>('/gguf/tools')
+  }
+
+  ggufExport(modelId: string, dtype = 'f16') {
+    return this.request<{ job_id: string; output: string }>('/gguf/export', { method: 'POST', body: { model_id: modelId, dtype } })
+  }
+
+  ggufQuantize(source: string, method: string) {
+    return this.request<{ job_id: string; output: string }>('/gguf/quantize', { method: 'POST', body: { source, method } })
+  }
+
+  ggufDequantize(source: string, method = 'F16') {
+    return this.request<{ job_id: string; output: string }>('/gguf/dequantize', { method: 'POST', body: { source, method } })
+  }
+
+  moeBuild(modelId: string, experts: number, topK: number) {
+    return this.request<{ job_id: string; output: string }>('/moe/build', { method: 'POST', body: { model_id: modelId, experts, top_k: topK } })
+  }
+
+  tuneVulkan(modelId: string, ngl: number[], context: number) {
+    return this.request<{ job_id: string }>('/tune/vulkan', { method: 'POST', body: { model_id: modelId, ngl, context } })
+  }
+
+  sources() {
+    return this.request<{ sources: Array<Record<string, unknown>> }>('/sources')
+  }
+
+  importSources(sources: string[], rights: string) {
+    return this.request<{ job_id: string }>('/sources/import', { method: 'POST', body: { sources, rights_status: rights } })
+  }
+
+  trainingAuto(payload: Record<string, unknown>) {
+    return this.request<{ job_id: string }>('/training/auto', { method: 'POST', body: payload })
+  }
+
+  trainingPlaybook() {
+    return this.request<{ entries: Array<Record<string, unknown>> }>('/training/playbook')
+  }
+
+  pipelineRun(stages: string[], options: Record<string, unknown>) {
+    return this.request<{ job_id: string }>('/pipeline/run', { method: 'POST', body: { stages, options } })
+  }
+
   // -- runs --------------------------------------------------------------
   runs(limit = 50, type?: string) {
     const query = new URLSearchParams({ limit: String(limit) })

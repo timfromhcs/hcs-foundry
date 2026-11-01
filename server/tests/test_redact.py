@@ -42,6 +42,12 @@ def test_high_entropy_is_flagged_not_redacted():
     assert token in result.text
 
 
+def test_vercel_gateway_key_is_redacted():
+    result = redact_text("key vck_test000000000000000000000000000000000000000000")
+    assert "vck_" not in result.text
+    assert "[REDACTED:VERCEL_KEY]" in result.text
+
+
 def test_redact_record_never_mutates_original():
     record = CanonicalRecord(
         record_id="rec_1",

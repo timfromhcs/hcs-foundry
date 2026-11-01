@@ -53,6 +53,13 @@ class SFTConfig:
     resume_from: str | None = None
     save_every: int = 10
     target_modules: list[str] = field(default_factory=lambda: list(DEFAULT_TARGET_MODULES))
+    # auto-decision / OpenEval
+    auto: bool = False
+    eval_every: int = 0
+    eval_samples: int = 8
+    patience: int = 3
+    lr_min: float = 1e-5
+    extra_texts: list[str] = field(default_factory=list)
 
     def to_public(self) -> dict:
         return asdict(self)
@@ -165,7 +172,7 @@ def _load_stack():
     }
 
 
-def build_examples(db: Database, dataset_id: str, max_seq_len: int) -> tuple[list[dict], dict]:
+def build_examples(db: Database, dataset_id: str, max_seq_len: int, extra_texts: list[str] | None = None) -> tuple[list[dict], dict]:
     dataset = get_dataset(db, dataset_id)
     if not dataset:
         raise ValueError("dataset not found")
@@ -192,13 +199,67 @@ def build_examples(db: Database, dataset_id: str, max_seq_len: int) -> tuple[lis
             continue
         texts.append(f"### User\n{user}\n\n### Assistant\n{assistant}\n")
 
+    for extra in extra_texts or []:
+        if extra and extra.strip():
+            texts.append(extra.strip()[: max_seq_len * 8])
+
     if not texts:
         raise ValueError("no record had both a user request and an assistant answer")
     return [{"text": text[: max_seq_len * 8]} for text in texts], {
         "dataset_id": dataset_id,
         "dataset_hash": dataset.get("manifest", {}).get("dataset_hash"),
         "records_used": len(texts),
+        "extra_texts": len(extra_texts or []),
     }
+
+
+def build_eval_texts(db: Database, dataset_id: str, limit: int = 8) -> list[str]:
+    """Held-out evaluation texts: validation split, else the tail of the train split."""
+    rows = db.query(
+        "SELECT payload FROM dataset_records WHERE dataset_id=? AND split='validation' AND excluded=0 LIMIT ?",
+        (dataset_id, limit),
+    )
+    if not rows:
+        rows = db.query(
+            "SELECT payload FROM dataset_records WHERE dataset_id=? AND split='train' AND excluded=0 "
+            "ORDER BY rowid DESC LIMIT ?",
+            (dataset_id, limit),
+        )
+    texts = []
+    for row in rows:
+        payload = json.loads(row["payload"])
+        task = payload.get("task") or {}
+        user = (task.get("user_request") or "").strip()
+        assistant = ""
+        for step in reversed(payload.get("trace") or []):
+            if step.get("kind") == "assistant_message" and (step.get("content") or "").strip():
+                assistant = step["content"].strip()
+                break
+        if user and assistant:
+            texts.append(f"### User\n{user}\n\n### Assistant\n{assistant}\n")
+    return texts
+
+
+def _eval_loss(model, tokenizer, texts: list[str], max_seq_len: int, torch) -> float:
+    if not texts:
+        return float("nan")
+    model.eval()
+    total = 0.0
+    count = 0
+    try:
+        with torch.no_grad():
+            for text in texts:
+                encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_seq_len)
+                if encoded["input_ids"].shape[-1] < 3:
+                    continue
+                outputs = model(**encoded, labels=encoded["input_ids"])
+                loss = float(outputs.loss)
+                if math.isfinite(loss):
+                    total += loss
+                    count += 1
+    finally:
+        model.train()
+    return total / count if count else float("nan")
 
 
 def train_sft(
@@ -233,9 +294,17 @@ def train_sft(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token or tokenizer.unk_token
 
-    examples, dataset_meta = build_examples(db, config.dataset_id, config.max_seq_len)
+    examples, dataset_meta = build_examples(db, config.dataset_id, config.max_seq_len, config.extra_texts)
     if log:
         log(f"Training on {len(examples)} example(s) from {config.dataset_id}")
+
+    eval_texts = build_eval_texts(db, config.dataset_id, config.eval_samples) if config.eval_every > 0 else []
+    if eval_texts and log:
+        log(f"OpenEval: {len(eval_texts)} held-out example(s), every {config.eval_every} step(s)")
+    eval_history: list[dict] = []
+    controller_actions: list[dict] = []
+    best: dict = {"loss": None, "step": 0}
+    best_dir = output_dir / "best_adapter"
 
     if progress:
         progress(10, "Tokenising dataset")
@@ -318,6 +387,60 @@ def train_sft(
             if cancel is not None and cancel.is_set():
                 control.should_training_stop = True
 
+    class OpenEval(stack["TrainerCallback"]):
+        def on_step_end(self, args, state, control, model=None, **kwargs):  # noqa: ANN001
+            if not eval_texts or state.global_step == 0:
+                return
+            if state.global_step % max(1, config.eval_every) != 0:
+                return
+            loss = _eval_loss(model, tokenizer, eval_texts, config.max_seq_len, torch)
+            if not math.isfinite(loss):
+                return
+            eval_history.append({"step": int(state.global_step), "eval_loss": round(loss, 6)})
+            if log:
+                log(f"eval step {state.global_step}: eval_loss={loss:.4f}")
+            if best["loss"] is None or loss < float(best["loss"]) - 1e-4:
+                best["loss"] = loss
+                best["step"] = int(state.global_step)
+                try:
+                    model.save_pretrained(str(best_dir))
+                    controller_actions.append({"step": int(state.global_step), "action": "saved_best", "eval_loss": round(loss, 6)})
+                except Exception:  # noqa: BLE001 - saving the best is best-effort
+                    controller_actions.append({"step": int(state.global_step), "action": "best_save_failed"})
+
+    class AutoControl(stack["TrainerCallback"]):
+        def __init__(self):
+            self.optimizer = None
+            self.bad = 0
+
+        def on_train_begin(self, args, state, control, optimizer=None, **kwargs):  # noqa: ANN001
+            self.optimizer = optimizer
+
+        def on_step_end(self, args, state, control, **kwargs):  # noqa: ANN001
+            if not config.auto or not eval_history:
+                return
+            current = float(eval_history[-1]["eval_loss"])
+            if best["loss"] is None or current <= float(best["loss"]) + 1e-4:
+                self.bad = 0
+                return
+            self.bad += 1
+            if self.bad >= max(1, config.patience):
+                control.should_training_stop = True
+                controller_actions.append({"step": int(state.global_step), "action": "early_stop", "reason": "no eval improvement"})
+                if log:
+                    log("auto: stopping early, evaluation did not improve")
+                return
+            if self.optimizer is not None:
+                reduced = False
+                for group in self.optimizer.param_groups:
+                    if group.get("lr", 0) > config.lr_min:
+                        group["lr"] = max(config.lr_min, group["lr"] * 0.5)
+                        reduced = True
+                if reduced:
+                    controller_actions.append({"step": int(state.global_step), "action": "lr_reduced", "bad_evals": self.bad})
+                    if log:
+                        log("auto: halved the learning rate after a plateau")
+
     args = stack["TrainingArguments"](
         output_dir=str(output_dir / "checkpoints"),
         per_device_train_batch_size=config.micro_batch,
@@ -345,7 +468,7 @@ def train_sft(
         args=args,
         train_dataset=tokenized,
         data_collator=collator,
-        callbacks=[Bridge()],
+        callbacks=[Bridge(), OpenEval(), AutoControl()],
     )
 
     if progress:
@@ -388,6 +511,12 @@ def train_sft(
             2,
         ),
         "adapter_dir": str(adapter_dir),
+        "best_adapter_dir": str(best_dir) if best["loss"] is not None else None,
+        "best_eval_loss": round(float(best["loss"]), 6) if best["loss"] is not None else None,
+        "best_eval_step": best["step"],
+        "eval_history": eval_history,
+        "controller_actions": controller_actions,
+        "auto": config.auto,
         "versions": _versions(),
         "finished_at": utc_now(),
         "resources": resources,

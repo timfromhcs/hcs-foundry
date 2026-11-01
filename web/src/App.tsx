@@ -14,6 +14,7 @@ import { Runs } from './pages/Runs'
 import { Settings } from './pages/Settings'
 import { TrainingLab } from './pages/TrainingLab'
 import { UpgradeLab } from './pages/UpgradeLab'
+import { Pipeline } from './pages/Pipeline'
 
 export function App() {
   return (
@@ -29,6 +30,7 @@ export function App() {
         <Route path="training" element={<TrainingLab />} />
         <Route path="benchmarks" element={<Benchmarks />} />
         <Route path="upgrades" element={<UpgradeLab />} />
+        <Route path="pipeline" element={<Pipeline />} />
         <Route path="agent" element={<AgentWorkspace />} />
         <Route path="runs" element={<Runs />} />
         <Route path="settings" element={<Settings />} />

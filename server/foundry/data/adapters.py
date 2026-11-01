@@ -559,11 +559,51 @@ def parse_opencode(path: Path, text: str) -> AdapterResult:
 # ---------------------------------------------------------------------------
 
 def parse_antigravity(path: Path, text: str) -> AdapterResult:
-    """Antigravity has no documented public transcript schema; use tolerant parsing."""
-    if path.suffix.lower() == ".jsonl":
-        result = parse_generic(path, text)
-    else:
-        result = parse_generic(path, text)
+    """Antigravity transcripts (``step_index`` JSONL) or tolerant generic parsing.
+
+    ``thinking`` fields are deliberately ignored: they are the provider's private
+    reasoning, not observable evidence.
+    """
+    if path.suffix.lower() == ".jsonl" and '"step_index"' in text[:4000]:
+        result = AdapterResult()
+        items, bad, total = _jsonl_lines(text, result.errors)
+        file_hash = content_hash(text)
+        events: list[dict] = []
+        for item in items:
+            kind = str(item.get("type") or "")
+            content = item.get("content")
+            content = content if isinstance(content, str) else ""
+            ts = item.get("created_at")
+            if kind == "USER_INPUT":
+                match = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", content, re.S)
+                events.append({"kind": "user_message", "content": (match.group(1) if match else content).strip(), "timestamp": ts})
+            elif kind in {"PLANNER_RESPONSE", "MODEL_RESPONSE", "ASSISTANT_MESSAGE"}:
+                if content.strip():
+                    events.append({"kind": "assistant_message", "content": content.strip(), "timestamp": ts})
+            elif "TOOL" in kind:
+                step_kind = "tool_result" if "RESULT" in kind or "OUTPUT" in kind else "tool_call"
+                events.append(
+                    {
+                        "kind": step_kind,
+                        "content": content.strip(),
+                        "tool_name": item.get("tool_name") or item.get("name"),
+                        "timestamp": ts,
+                    }
+                )
+        records = _records_from_events(
+            events,
+            provider="antigravity",
+            session_id=path.parent.parent.parent.name or path.stem,
+            file_hash=file_hash,
+            rights_status="needs_review",
+            task_type=_guess_task_type(events[0]["content"] if events else ""),
+            metadata={"format": "antigravity_transcript", "source_name": path.name},
+        )
+        result.records = records
+        result.stats = {"files": 1, "records": len(records), "lines": total, "skipped_lines": bad}
+        return result
+
+    result = parse_generic(path, text)
     for record in result.records:
         record.source["provider"] = "antigravity"
         record.source["adapter_version"] = ADAPTER_VERSIONS["antigravity"]

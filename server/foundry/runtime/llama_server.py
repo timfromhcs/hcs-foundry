@@ -366,6 +366,7 @@ class LlamaServer:
         first_token_at: float | None = None
         usage: dict = {}
         text_parts: list[str] = []
+        reasoning_parts: list[str] = []
 
         try:
             with self._client(None) as client:
@@ -399,6 +400,7 @@ class LlamaServer:
                             content = delta.get("content")
                             reasoning = delta.get("reasoning_content")
                             if reasoning:
+                                reasoning_parts.append(reasoning)
                                 yield {"type": "reasoning", "text": reasoning}
                             if content:
                                 if first_token_at is None:
@@ -417,6 +419,7 @@ class LlamaServer:
         yield {
             "type": "done",
             "text": "".join(text_parts),
+            "reasoning": "".join(reasoning_parts),
             "usage": usage,
             "metrics": {
                 "elapsed_seconds": round(elapsed, 3),
@@ -429,15 +432,20 @@ class LlamaServer:
 
     def complete(self, messages: list[dict], **kwargs) -> dict:
         text = ""
+        reasoning = ""
         metrics: dict = {}
         for event in self.chat(messages, **kwargs):
             if event["type"] == "delta":
                 text += event["text"]
+            elif event["type"] == "reasoning":
+                reasoning += event["text"]
             elif event["type"] == "done":
                 metrics = event.get("metrics", {})
+                if not text and event.get("reasoning"):
+                    reasoning = event["reasoning"]
             elif event["type"] == "error":
                 raise RuntimeFailure(event["message"])
-        return {"text": text, "metrics": metrics}
+        return {"text": text, "reasoning": reasoning, "metrics": metrics}
 
     def cancel(self) -> None:
         self._cancel.set()

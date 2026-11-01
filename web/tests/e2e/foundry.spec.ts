@@ -17,6 +17,7 @@ const ROUTES: Array<{ path: string; heading: string }> = [
   { path: '/training', heading: 'Training Lab' },
   { path: '/benchmarks', heading: 'Benchmarks' },
   { path: '/upgrades', heading: 'Upgrade Lab' },
+  { path: '/pipeline', heading: 'Pipeline' },
   { path: '/agent', heading: 'Agent Workspace' },
   { path: '/runs', heading: 'Runs & Reports' },
   { path: '/settings', heading: 'Settings' },
