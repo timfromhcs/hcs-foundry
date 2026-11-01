@@ -176,7 +176,7 @@ Bounded repair: 3 attempts per failing test, then document and move on.
 | W5 Logs | **done** | 72 records from Claude/Codex/Antigravity; OpenCode active session skipped; sources untouched |
 | W6 UI/CLI | **done** | Pipeline page + 14 CLI command groups + v3 API; E2E 7/7 |
 | W7 Pipeline | **done** | stage runner with report; failure isolation tested |
-| W8 Release | **in progress** | tests green, docs, push pending |
+| W8 Release | **done** | 149 + 7 + 7 tests green, tag `v3.0.0`, CI run 41347915292 green |
 
 ## 7. Honest refusals shipped in v3
 
