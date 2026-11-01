@@ -14,7 +14,9 @@ import type {
 } from './types'
 
 const TOKEN_KEY = 'foundry.token'
-const BASE = '/api/v1'
+// Local development and the self-hosted build use a relative path. A deployed
+// frontend points at the user's local service explicitly (never a hosted backend).
+const BASE = (import.meta.env.VITE_FOUNDRY_API as string | undefined) ?? '/api/v1'
 
 export class ApiError extends Error {
   status: number
