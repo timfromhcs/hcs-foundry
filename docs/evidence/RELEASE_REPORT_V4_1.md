@@ -67,3 +67,15 @@ cd web && npx vitest run                    # 7 passed
 cd web && npm run build                     # tsc + vite
 cd web && npx playwright test               # 7 passed (service on :8770)
 ```
+
+## Publication
+
+| Item | Value |
+|---|---|
+| Commit | `2dfb109` on `main` |
+| Tag | `v4.1.0` (pushed) |
+| CI | run `41363174275` — green (backend, frontend, Playwright) |
+| GitHub Release | <https://github.com/timfromhcs/hcs-foundry/releases/tag/v4.1.0> (Latest) |
+| Windows EXE | `HCSFoundry.exe`, 384,030,218 bytes, built from this commit, `sha256:7384d55f74df…` |
+| Landing page | <https://hcs-foundry-site.vercel.app> (`dpl` for `hcs-foundry-site`, static) |
+
