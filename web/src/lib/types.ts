@@ -192,6 +192,27 @@ export interface AgentTask {
   finished_at: string | null
 }
 
+export interface HFModel {
+  id: string
+  author: string | null
+  downloads: number
+  likes: number
+  tags: string[]
+  pipeline_tag: string | null
+  gated: boolean | string
+  private: boolean
+  last_modified: string | null
+  library_name: string | null
+  file_count?: number
+}
+
+export interface HFFile {
+  path: string
+  size: number
+  sha256: string | null
+  is_lfs: boolean
+}
+
 export interface TrainingEnvironment {
   state: 'unsupported' | 'cpu-experimental' | 'gpu'
   reason: string

@@ -73,3 +73,37 @@ def test_agent_suggest_mode_does_not_run(api):
 
 def test_unknown_route_returns_404(api):
     assert api.get("/api/v1/does-not-exist").status_code == 404
+
+
+def test_settings_survive_a_restart(settings):
+    from fastapi.testclient import TestClient
+
+    from foundry.config import Settings
+    from foundry.main import create_app
+
+    def client_for(config: Settings):
+        app = create_app(config, serve_web=False)
+        client = TestClient(app, base_url="http://127.0.0.1:8770")
+        token = client.post(
+            "/api/v1/system/pair", json={"label": "t"}, headers={"X-Foundry-Client": "1"}
+        ).json()["token"]
+        client.headers.update({"Authorization": f"Bearer {token}", "X-Foundry-Client": "1"})
+        return client
+
+    first = client_for(settings)
+    response = first.put(
+        "/api/v1/settings",
+        json={"model_roots": ["/tmp/one", "/tmp/two"], "os_reserve_ratio": 0.2},
+    )
+    assert response.status_code == 200
+    first.close()
+
+    restarted = Settings(data_dir=settings.data_dir, import_roots=settings.import_roots)
+    restarted.ensure_dirs()
+    second = client_for(restarted)
+    effective = second.get("/api/v1/settings").json()["effective"]
+    from pathlib import Path
+
+    assert [Path(p) for p in effective["model_roots"]] == [Path("/tmp/one"), Path("/tmp/two")]
+    assert abs(float(effective["os_reserve_ratio"]) - 0.2) < 1e-9
+    second.close()

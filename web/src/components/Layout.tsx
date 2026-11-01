@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 
@@ -7,6 +7,8 @@ import { LANGUAGES } from '../i18n'
 import { formatPercent, statusTone } from '../lib/format'
 import { Badge, Button, Progress } from './ui'
 import { Icon, type IconName } from './icons'
+import { CommandPalette } from './CommandPalette'
+import { BottomNav } from './BottomNav'
 import { Onboarding } from '../pages/Onboarding'
 
 const NAV: Array<{ group: string; items: Array<{ to: string; label: string; icon: IconName }> }> = [
@@ -15,6 +17,7 @@ const NAV: Array<{ group: string; items: Array<{ to: string; label: string; icon
     items: [
       { to: '/', label: 'nav.overview', icon: 'grid' },
       { to: '/models', label: 'nav.models', icon: 'box' },
+      { to: '/hub', label: 'nav.hub', icon: 'download' },
       { to: '/playground', label: 'nav.playground', icon: 'chat' },
     ],
   },
@@ -44,6 +47,7 @@ function pageTitle(pathname: string): string {
     '/': 'nav.overview',
     '/machine': 'nav.machine',
     '/models': 'nav.models',
+    '/hub': 'nav.hub',
     '/playground': 'nav.playground',
     '/data': 'nav.data',
     '/identity': 'nav.identity',
@@ -105,7 +109,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   )
 }
 
-function Topbar({ onMenu }: { onMenu: () => void }) {
+function Topbar({ onMenu, onPalette }: { onMenu: () => void; onPalette: () => void }) {
   const { t } = useTranslation()
   const { lang, setLang, theme, setTheme, info } = useApp()
   const location = useLocation()
@@ -116,6 +120,11 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
         <h1>{t(pageTitle(location.pathname))}</h1>
       </div>
       <div className="topbar-actions">
+        <button type="button" className="palette-trigger" onClick={onPalette} aria-label={t('palette.open')}>
+          <Icon name="search" size={14} />
+          <span className="palette-trigger-label">{t('common.search')}</span>
+          <kbd>{t('palette.hint')}</kbd>
+        </button>
         {info?.model_loaded ? <Badge tone="ok" dot>{t('models.model_loaded')}</Badge> : null}
         <label className="sr-only" htmlFor="lang-select">{t('common.language')}</label>
         <select
@@ -209,6 +218,18 @@ export function Layout() {
   const { t } = useTranslation()
   const { paired } = useApp()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((value) => !value)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   if (!paired) return <Onboarding />
 
@@ -217,11 +238,13 @@ export function Layout() {
       <a className="skip-link" href="#main">{t('common.skip')}</a>
       <Sidebar open={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="main">
-        <Topbar onMenu={() => setMobileOpen(true)} />
+        <Topbar onMenu={() => setMobileOpen(true)} onPalette={() => setPaletteOpen(true)} />
         <main id="main" className="page">
           <Outlet />
         </main>
       </div>
+      <BottomNav onMore={() => setMobileOpen(true)} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <JobTray />
       <Toasts />
     </div>

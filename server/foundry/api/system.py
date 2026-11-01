@@ -106,6 +106,7 @@ class SettingsPatch(BaseModel):
     gpu_headroom_bytes: int | None = Field(default=None, ge=0)
     allow_concurrent_heavy_jobs: bool | None = None
     telemetry: bool | None = None
+    llama_server_candidates: list[str] | None = None
 
 
 @router.put("/settings")
@@ -117,20 +118,13 @@ def update_settings(request: Request, body: SettingsPatch):
             detail={"code": "telemetry_not_implemented", "message": "HCS Foundry does not implement telemetry; local-only is the only mode."},
         )
     updates = body.model_dump(exclude_none=True)
-    if "model_roots" in updates:
-        state.settings.model_roots = [Path(p).expanduser() for p in updates["model_roots"]]
-    if "import_roots" in updates:
-        state.settings.import_roots = [Path(p).expanduser() for p in updates["import_roots"]]
-    if "ui_origins" in updates:
-        state.settings.ui_origins = updates["ui_origins"]
-        request.app.state.foundry.settings.ui_origins = updates["ui_origins"]
-    if "os_reserve_ratio" in updates:
-        state.settings.os_reserve_ratio = updates["os_reserve_ratio"]
-    if "gpu_headroom_bytes" in updates:
-        state.settings.gpu_headroom_bytes = updates["gpu_headroom_bytes"]
-    if "allow_concurrent_heavy_jobs" in updates:
-        state.settings.allow_concurrent_heavy_jobs = updates["allow_concurrent_heavy_jobs"]
-    state.db.set_setting("settings", updates)
+    from ..config import apply_overrides
+
+    apply_overrides(state.settings, updates)
+    state.settings.ensure_dirs()
+    merged = dict(state.db.get_setting("settings") or {})
+    merged.update(updates)
+    state.db.set_setting("settings", merged)
     state.activity("settings.update", "Settings updated", updates)
     return get_settings(request)
 

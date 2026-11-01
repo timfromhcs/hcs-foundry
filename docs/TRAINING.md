@@ -63,3 +63,61 @@ Training runs are jobs: they have progress, events, cancellation and an output p
 - Full fine-tuning: not offered on shared-memory hardware.
 - Distributed training.
 - Automatic promotion of a trained adapter: it must pass the same benchmark and upgrade gates as any other candidate.
+
+## LoRA/SFT backend (v2)
+
+`foundry/training/sft.py` implements a real LoRA fine-tune:
+
+1. Load a **local** safetensors base model (no hidden downloads).
+2. Build examples from the frozen dataset's train split (`### User` / `### Assistant`).
+3. Tokenise with the model's own tokenizer and truncate to the configured sequence length.
+4. Attach LoRA adapters with architecture-aware target modules.
+5. Train with `transformers.Trainer`, live loss events, checkpoints and cooperative cancellation.
+6. Save the adapter and a manifest with base-model hash, dataset hash, library versions and resources.
+
+It refuses to run when the estimated memory exceeds available RAM, when rights are not confirmed, or when no example has both a request and an answer.
+
+### Measured proof on the test machine
+
+Base: `Qwen/Qwen3-0.6B` (pulled anonymously from the Hub, 1.5 GB).
+Dataset: 16 train records. LoRA r=4, sequence 128, batch 1.
+
+```
+steps            2
+duration         4.16 s
+loss             6.043644 → 5.014467
+trainable params 2,523,136 of 598,573,056 (0.42 %)
+throughput       61.6 tokens/s (estimated)
+adapter          data/training-runs/proof-qwen06b/adapter
+```
+
+The adapter directory contains `adapter_config.json` and the LoRA weights. That is a real optimisation, not a simulation.
+
+### Why there is no "good 3B model" from this machine
+
+A 3B model is roughly five times larger. At the measured rate the same setup lands around 10–15 tokens/s on this CPU, so a 200-step run at 512 tokens with gradient accumulation 8 needs roughly **15–38 hours**, and a useful SFT run needs several times that. There is no CUDA or ROCm device here.
+
+The honest deliverable is the verified trainer plus a recipe and a projection. The `3b-cpu` recipe prints that warning; `3b-gpu` is the shape to use on a 12 GB GPU.
+
+### Recipes
+
+| id | Purpose |
+|---|---|
+| `tiny-proof` | end-to-end proof in minutes |
+| `1b-cpu` | short experimental run on CPU |
+| `3b-cpu` | warns that this is not practical |
+| `3b-gpu` | recommended shape for a real 3B LoRA |
+
+### Using the adapter
+
+The adapter is a PEFT artifact. To use it for inference you need the base model and `peft`:
+
+```python
+from peft import PeftModel
+from transformers import AutoModelForCausalLM
+
+base = AutoModelForCausalLM.from_pretrained("E:/models/Qwen3-0.6B")
+model = PeftModel.from_pretrained(base, "data/training-runs/proof-qwen06b/adapter")
+```
+
+Converting a merged model to GGUF is **not** implemented in v2. That remains an explicit, documented gap rather than a fake button.

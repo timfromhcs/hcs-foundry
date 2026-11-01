@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -96,6 +97,92 @@ def training_smoke(request: Request):
 
     job_id = state.runner.submit("training.smoke", job, heavy=True)
     return {"job_id": job_id}
+
+
+@router.get("/training/recipes")
+def training_recipes(request: Request):
+    from ..training import recipe_catalog
+
+    return {"recipes": recipe_catalog()}
+
+
+class SFTRequest(BaseModel):
+    dataset_id: str
+    model_path: str
+    recipe_id: str | None = None
+    max_steps: int = Field(default=20, ge=1, le=20000)
+    max_seq_len: int = Field(default=256, ge=32, le=4096)
+    micro_batch: int = Field(default=1, ge=1, le=16)
+    grad_accum: int = Field(default=4, ge=1, le=128)
+    lora_r: int = Field(default=8, ge=1, le=128)
+    lora_alpha: int = Field(default=16, ge=1, le=256)
+    learning_rate: float = Field(default=2e-4, gt=0, le=1)
+    seed: int = Field(default=42, ge=0)
+
+
+@router.post("/training/project")
+def training_project(request: Request, body: SFTRequest):
+    from ..training import SFTConfig, estimate_resources
+
+    config = SFTConfig(
+        model_path=body.model_path,
+        dataset_id=body.dataset_id,
+        max_steps=body.max_steps,
+        max_seq_len=body.max_seq_len,
+        micro_batch=body.micro_batch,
+        grad_accum=body.grad_accum,
+        lora_r=body.lora_r,
+        lora_alpha=body.lora_alpha,
+        learning_rate=body.learning_rate,
+        seed=body.seed,
+    )
+    return {"config": config.to_public(), "resources": estimate_resources(body.model_path, config)}
+
+
+@router.post("/training/sft")
+def training_sft(request: Request, body: SFTRequest):
+    state = _state(request)
+    from ..training import SFTConfig, create_sft_run, estimate_resources
+
+    config = SFTConfig(
+        model_path=body.model_path,
+        dataset_id=body.dataset_id,
+        max_steps=body.max_steps,
+        max_seq_len=body.max_seq_len,
+        micro_batch=body.micro_batch,
+        grad_accum=body.grad_accum,
+        lora_r=body.lora_r,
+        lora_alpha=body.lora_alpha,
+        learning_rate=body.learning_rate,
+        seed=body.seed,
+    )
+    resources = estimate_resources(body.model_path, config)
+    if not resources["fits"]:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "does_not_fit",
+                "message": "The estimated memory exceeds available RAM. Lower sequence length or batch size.",
+                "resources": resources,
+            },
+        )
+    output_dir = state.settings.training_dir / f"run_{int(time.time())}"
+
+    def job(ctx):
+        result = create_sft_run(
+            state.db,
+            config,
+            job_id=ctx.job_id,
+            output_dir=output_dir,
+            progress=lambda pct, msg: ctx.progress(pct, msg),
+            log=lambda message: ctx.log(message),
+            cancel=ctx.cancel_event,
+        )
+        ctx.artifact("adapter", result["manifest"]["adapter_dir"])
+        return result
+
+    job_id = state.runner.submit("training.sft", job, input_data={"dataset_id": body.dataset_id, "model": body.model_path}, heavy=True)
+    return {"job_id": job_id, "output_dir": str(output_dir), "resources": resources}
 
 
 @router.get("/training/runs")

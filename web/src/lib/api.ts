@@ -6,6 +6,8 @@ import type {
   Dataset,
   DatasetRecord,
   Fit,
+  HFFile,
+  HFModel,
   Job,
   JobEvent,
   MachineProfile,
@@ -338,7 +340,7 @@ class ApiClient {
     })
   }
 
-  enrichDataset(datasetId: string, mode: 'deterministic' | 'model', limit = 100) {
+  enrichDataset(datasetId: string, mode: 'deterministic' | 'model' | 'gateway', limit = 100) {
     return this.request<{ job_id: string }>(`/datasets/${datasetId}/enrich`, { method: 'POST', body: { mode, limit } })
   }
 
@@ -408,6 +410,24 @@ class ApiClient {
 
   trainingSmoke() {
     return this.request<{ job_id: string }>('/training/smoke', { method: 'POST', body: {} })
+  }
+
+  trainingRecipes() {
+    return this.request<{ recipes: Array<Record<string, unknown>> }>('/training/recipes')
+  }
+
+  trainingProject(payload: Record<string, unknown>) {
+    return this.request<{ config: Record<string, unknown>; resources: Record<string, unknown> }>('/training/project', {
+      method: 'POST',
+      body: payload,
+    })
+  }
+
+  trainingSft(payload: Record<string, unknown>) {
+    return this.request<{ job_id: string; output_dir: string; resources: Record<string, unknown> }>('/training/sft', {
+      method: 'POST',
+      body: payload,
+    })
   }
 
   trainingRuns() {
@@ -516,6 +536,70 @@ class ApiClient {
 
   cancelAgentTask(id: string) {
     return this.request<{ task: AgentTask }>(`/agent/tasks/${id}/cancel`, { method: 'POST', body: {} })
+  }
+
+  // -- hub ---------------------------------------------------------------
+  hubSearch(q: string, task?: string, limit = 20, sort = 'downloads') {
+    const query = new URLSearchParams({ q, limit: String(limit), sort })
+    if (task) query.set('task', task)
+    return this.request<{ query: string; results: HFModel[]; anonymous: boolean }>(`/hub/search?${query.toString()}`)
+  }
+
+  hubModel(repoId: string) {
+    return this.request<{ model: HFModel; files: HFFile[]; suggested: string[]; total_bytes: number }>(
+      `/hub/models/${repoId}`,
+    )
+  }
+
+  hubToken() {
+    return this.request<{ configured: boolean; masked: string | null; note: string }>('/hub/token')
+  }
+
+  setHubToken(token: string) {
+    return this.request<{ status: { configured: boolean; masked: string | null }; identity: Record<string, unknown> }>(
+      '/hub/token',
+      { method: 'PUT', body: { token } },
+    )
+  }
+
+  clearHubToken() {
+    return this.request<{ configured: boolean; masked: string | null }>('/hub/token', { method: 'DELETE' })
+  }
+
+  testHubToken() {
+    return this.request<Record<string, unknown>>('/hub/token/test', { method: 'POST', body: {} })
+  }
+
+  hubDownload(repoId: string, files: string[]) {
+    return this.request<{ job_id: string; files: string[]; dest: string; anonymous: boolean }>('/hub/download', {
+      method: 'POST',
+      body: { repo_id: repoId, files },
+    })
+  }
+
+  // -- gateway -----------------------------------------------------------
+  gatewayStatus() {
+    return this.request<{ configured: boolean; enabled: boolean; model: string; masked: string | null; note: string }>('/gateway')
+  }
+
+  setGateway(key: string, model?: string) {
+    return this.request<Record<string, unknown>>('/gateway', { method: 'PUT', body: { key, model } })
+  }
+
+  enableGateway(enabled: boolean) {
+    return this.request<Record<string, unknown>>('/gateway/enable', { method: 'POST', body: { enabled } })
+  }
+
+  clearGateway() {
+    return this.request<Record<string, unknown>>('/gateway', { method: 'DELETE' })
+  }
+
+  gatewayModels() {
+    return this.request<{ models: Array<{ id: string; name: string; owned_by: string }> }>('/gateway/models')
+  }
+
+  testGateway() {
+    return this.request<Record<string, unknown>>('/gateway/test', { method: 'POST', body: {} })
   }
 
   // -- runs --------------------------------------------------------------

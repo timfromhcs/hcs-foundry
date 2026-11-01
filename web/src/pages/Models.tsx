@@ -59,6 +59,9 @@ export function Models() {
           <p className="muted small">{t('models.subtitle')}</p>
         </div>
         <div className="row">
+          <Button icon="download" onClick={() => navigate('/hub')}>
+            {t('hub.pull_from_hub')}
+          </Button>
           <Button
             variant="primary"
             icon="search"

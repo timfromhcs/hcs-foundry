@@ -212,6 +212,136 @@ export function Settings() {
           <span className="tiny dim">{t('overview.safe_budget')}: {formatBytes(Number((settings.data?.effective as Record<string, unknown> | undefined)?.gpu_headroom_bytes ?? 0))} headroom</span>
         </div>
       </Card>
+
+      <GatewayCard notify={notify} />
     </>
+  )
+}
+
+function GatewayCard({ notify }: { notify: (kind: 'ok' | 'danger' | 'warn' | 'info', message: string) => void }) {
+  const { t } = useTranslation()
+  const status = useAsync(() => api.gatewayStatus(), [])
+  const [key, setKey] = useState('')
+  const [model, setModel] = useState('')
+  const [models, setModels] = useState<Array<{ id: string; name: string }>>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (status.data?.model) setModel(status.data.model)
+  }, [status.data?.model])
+
+  const loadModels = async () => {
+    try {
+      const data = await api.gatewayModels()
+      setModels(data.models)
+      notify('ok', `${data.models.length} models`)
+    } catch (error) {
+      notify('danger', error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title={t('settings.cloud')}
+        icon="globe"
+        actions={
+          <Badge tone={status.data?.enabled ? 'warn' : 'plain'}>
+            {status.data?.enabled ? t('common.yes') : t('common.no')}
+          </Badge>
+        }
+      />
+      <div className="stack">
+        <Alert tone="warn">{t('settings.cloud_warning')}</Alert>
+        <p className="tiny muted">{t('settings.cloud_note')}</p>
+        <KV
+          items={[
+            [t('common.status'), status.data?.configured ? <Badge tone="ok">{t('hub.token_active')}</Badge> : <Badge tone="plain">{t('common.none')}</Badge>],
+            [t('hub.token_masked'), status.data?.masked ?? '—'],
+            [t('settings.cloud_model'), status.data?.model ?? '—'],
+          ]}
+        />
+        <div className="grid cols-2">
+          <Field label={t('settings.cloud_key')} htmlFor="gw-key">
+            <Input id="gw-key" type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="vck_…" autoComplete="off" />
+          </Field>
+          <Field label={t('settings.cloud_model')} htmlFor="gw-model">
+            <Select id="gw-model" value={model} onChange={(event) => setModel(event.target.value)}>
+              <option value="">{status.data?.model ?? '—'}</option>
+              {models.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="row">
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={key.trim().length < 8}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await api.setGateway(key.trim(), model || undefined)
+                setKey('')
+                status.reload()
+                notify('ok', t('settings.cloud_saved'))
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error)
+                notify('danger', message.includes('billing') ? t('settings.cloud_billing') : message)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {t('common.save')}
+          </Button>
+          <Button variant="ghost" onClick={() => void loadModels()} disabled={!status.data?.configured}>
+            {t('settings.cloud_model')}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              try {
+                await api.enableGateway(!status.data?.enabled)
+                status.reload()
+              } catch (error) {
+                notify('danger', error instanceof Error ? error.message : String(error))
+              }
+            }}
+            disabled={!status.data?.configured}
+          >
+            {status.data?.enabled ? t('common.no') : t('common.yes')}
+          </Button>
+          <Button
+            variant="danger"
+            disabled={!status.data?.configured}
+            onClick={async () => {
+              await api.clearGateway()
+              status.reload()
+              notify('ok', t('common.remove'))
+            }}
+          >
+            {t('common.remove')}
+          </Button>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={Boolean(status.data?.enabled)}
+            disabled={!status.data?.configured}
+            onChange={async (event) => {
+              try {
+                await api.enableGateway(event.target.checked)
+                status.reload()
+              } catch (error) {
+                notify('danger', error instanceof Error ? error.message : String(error))
+              }
+            }}
+          />
+          {t('settings.cloud_enable')}
+        </label>
+      </div>
+    </Card>
   )
 }

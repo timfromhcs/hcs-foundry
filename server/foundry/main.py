@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import api_router
-from .config import APP_NAME, VERSION, Settings, load_settings, repo_root
+from .config import APP_NAME, VERSION, Settings, apply_overrides, load_settings, repo_root
 from .db import init_db
 from .events import EventBus
 from .jobs import JobRunner
@@ -45,6 +45,9 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
     _setup_logging(settings)
 
     db = init_db(settings.db_path)
+    # Persisted overrides win over defaults, so a restart keeps the user's paths.
+    apply_overrides(settings, db.get_setting("settings"))
+    settings.ensure_dirs()
     bus = EventBus()
     runner = JobRunner(db, bus, allow_concurrent_heavy=settings.allow_concurrent_heavy_jobs)
     server = LlamaServer(settings.state_dir)

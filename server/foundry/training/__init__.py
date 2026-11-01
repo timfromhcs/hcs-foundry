@@ -1,4 +1,4 @@
-"""Training capability detection and a *real* smoke optimisation.
+"""Training capability detection, a real smoke optimisation and the LoRA/SFT backend.
 
 Honesty rules implemented here:
 
@@ -23,9 +23,9 @@ from typing import Callable
 
 import psutil
 
-from .config import Settings
-from .db import Database, new_id, utc_now
-from .data.pipeline import get_dataset
+from ..config import Settings
+from ..db import Database, new_id, utc_now
+from ..data.pipeline import get_dataset
 
 TRAINING_PACKAGES = ("torch", "transformers", "trl", "peft", "datasets", "accelerate", "bitsandbytes")
 
@@ -352,3 +352,24 @@ def start_smoke_run(db: Database, settings: Settings, job_id: str | None, progre
     )
     db.activity("training.smoke", result.reason, {"run_id": run_id, "ok": result.ok})
     return {"run_id": run_id, "ok": result.ok, "metrics": result.metrics, "reason": result.reason}
+
+from .recipes import project, recipe_catalog, recipe_config
+from .sft import SFTConfig, TrainingUnavailable, create_sft_run, estimate_resources, train_sft
+
+__all__ = [
+    "detect_environment",
+    "preflight",
+    "run_smoke",
+    "create_run",
+    "list_runs",
+    "get_run",
+    "start_smoke_run",
+    "SFTConfig",
+    "TrainingUnavailable",
+    "create_sft_run",
+    "estimate_resources",
+    "train_sft",
+    "recipe_catalog",
+    "recipe_config",
+    "project",
+]

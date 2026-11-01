@@ -10,6 +10,7 @@ const ROUTES: Array<{ path: string; heading: string }> = [
   { path: '/', heading: 'Overview' },
   { path: '/machine', heading: 'Machine' },
   { path: '/models', heading: 'Models' },
+  { path: '/hub', heading: 'Model Hub' },
   { path: '/playground', heading: 'Playground' },
   { path: '/data', heading: 'Data Studio' },
   { path: '/identity', heading: 'Identity Maker' },
@@ -70,7 +71,7 @@ test('keyboard navigation reaches the skip link and the nav', async ({ page }) =
 test('mobile layout has no horizontal overflow and exposes the drawer', async ({ page }) => {
   await authenticate(page)
   await page.setViewportSize({ width: 390, height: 844 })
-  for (const path of ['/', '/models', '/benchmarks', '/runs']) {
+  for (const path of ['/', '/models', '/hub', '/benchmarks', '/runs']) {
     await page.goto(path)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     expect(overflow, `horizontal overflow on ${path}`).toBeLessThanOrEqual(1)
@@ -79,6 +80,23 @@ test('mobile layout has no horizontal overflow and exposes the drawer', async ({
   await expect(menu).toBeVisible()
   await menu.click()
   await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.goto('/')
+  const bottomNav = page.getByRole('navigation', { name: 'Mobile' })
+  await expect(bottomNav).toBeVisible()
+  await bottomNav.getByRole('link', { name: 'Model Hub' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Model Hub' })).toBeVisible()
+})
+
+test('command palette navigates with the keyboard', async ({ page }) => {
+  await authenticate(page)
+  await page.goto('/')
+  await page.keyboard.press('Control+k')
+  const dialog = page.getByRole('dialog', { name: 'Open command palette' })
+  await expect(dialog).toBeVisible()
+  await page.keyboard.type('bench')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { level: 1, name: 'Benchmarks' })).toBeVisible()
 })
 
 test('reduced motion is respected', async ({ page }) => {

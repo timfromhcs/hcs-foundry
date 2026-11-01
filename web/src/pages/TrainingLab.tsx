@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { useAsync, useJob } from '../lib/hooks'
 import { formatBytes, formatDate, statusTone } from '../lib/format'
 import type { TrainingEnvironment } from '../lib/types'
+import { SftPanel } from './SftPanel'
 import {
   Alert,
   Badge,
@@ -141,6 +142,13 @@ export function TrainingLab() {
               <Alert tone="info">{t('training.honesty_note')}</Alert>
             </div>
           </Card>
+
+          <SftPanel
+            frozen={frozen}
+            environment={environment}
+            notify={notify}
+            onFinished={() => runs.reload()}
+          />
 
           <Card>
             <CardHeader title={t('training.preflight_title')} icon="shield" />

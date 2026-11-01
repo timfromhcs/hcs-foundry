@@ -5,6 +5,7 @@ import { AgentWorkspace } from './pages/AgentWorkspace'
 import { Benchmarks } from './pages/Benchmarks'
 import { DataStudio } from './pages/DataStudio'
 import { IdentityMaker } from './pages/IdentityMaker'
+import { Hub } from './pages/Hub'
 import { Machine } from './pages/Machine'
 import { Models } from './pages/Models'
 import { Overview } from './pages/Overview'
@@ -21,6 +22,7 @@ export function App() {
         <Route index element={<Overview />} />
         <Route path="machine" element={<Machine />} />
         <Route path="models" element={<Models />} />
+        <Route path="hub" element={<Hub />} />
         <Route path="playground" element={<Playground />} />
         <Route path="data" element={<DataStudio />} />
         <Route path="identity" element={<IdentityMaker />} />

@@ -1,0 +1,33 @@
+# v2 evidence — standalone executable
+
+## Build
+
+```
+scripts/build_exe.ps1
+PyInstaller 6.21.0, Python 3.14, Windows 11 26200
+artifact: dist-exe/HCSFoundry.exe
+size: 50.8 MB
+bundled: web/dist (SPA), foundry package, uvicorn/fastapi/starlette
+excluded: torch, transformers, peft, datasets, matplotlib, tkinter
+```
+
+## Runtime check
+
+```
+HCSFoundry.exe --no-browser --port 8790 --data-dir <temp>
+HCS Foundry 2.0.0
+  URL:  http://127.0.0.1:8790/
+  Data: <temp>
+
+GET /                -> 200
+GET /api/v1/health   -> {"status":"ok","app":"hcs-foundry","version":"2.0.0",...}
+```
+
+The browser rendered the onboarding screen from the bundled SPA
+(`.playwright-mcp/exe-onboarding.png`).
+
+## Notes
+
+- Data defaults to `%LOCALAPPDATA%\HCS Foundry` so the executable can sit in a read-only folder.
+- The executable picks a free port if the preferred one is taken.
+- Fine-tuning is unavailable in the executable because the ML stack is excluded; the UI reports that instead of failing silently.

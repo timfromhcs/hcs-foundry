@@ -62,9 +62,10 @@ htmlcov/
 
 # --- Node ---
 node_modules/
-dist/
+/dist/
+/dist-exe/
 dist-ssr/
-build/
+/build/
 .vite/
 *.local
 coverage/

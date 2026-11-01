@@ -160,7 +160,7 @@ def set_rights(request: Request, dataset_id: str, body: RightsRequest):
 
 
 class EnrichRequest(BaseModel):
-    mode: str = Field(default="deterministic", pattern="^(deterministic|model)$")
+    mode: str = Field(default="deterministic", pattern="^(deterministic|model|gateway)$")
     limit: int = Field(default=100, ge=1, le=2000)
 
 
@@ -169,11 +169,23 @@ def enrich(request: Request, dataset_id: str, body: EnrichRequest):
     state = _state(request)
     if not get_dataset(state.db, dataset_id):
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Dataset not found."})
-    if body.mode == "model" and state.server.status().get("status") != "ready":
-        raise HTTPException(status_code=409, detail={"code": "no_model", "message": "Load a model to use model-based enrichment."})
+    llm = None
+    if body.mode == "model":
+        if state.server.status().get("status") != "ready":
+            raise HTTPException(status_code=409, detail={"code": "no_model", "message": "Load a model to use model-based enrichment."})
+        llm = state.server
+    elif body.mode == "gateway":
+        from .. import gateway
+
+        config = gateway.get_config(state.settings.state_dir)
+        if not (config["configured"] and config["enabled"]):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "gateway_disabled", "message": "Enable the AI Gateway in Settings first."},
+            )
+        llm = gateway.GatewayTeacher(config["key"], config["model"])
 
     def job(ctx):
-        llm = state.server if body.mode == "model" else None
         result = enrich_dataset(
             state.db,
             dataset_id,

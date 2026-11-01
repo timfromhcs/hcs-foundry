@@ -185,7 +185,7 @@ def enrich_dataset(
         if progress is not None:
             progress(index / max(1, len(rows)) * 100, f"Annotating {index + 1}/{len(rows)}")
         original = CanonicalRecord.from_dict(json.loads(row["payload"]))
-        if mode == "model" and llm is not None:
+        if mode in {"model", "gateway"} and llm is not None:
             annotation = model_annotation(original, llm)
         else:
             annotation = deterministic_annotation(original)
@@ -194,7 +194,7 @@ def enrich_dataset(
             skipped += 1
             continue
         ok, reason = validate_annotation(original, annotation.get("decision_summary"))
-        if mode == "model" and not ok:
+        if mode in {"model", "gateway"} and not ok:
             rejected += 1
             annotation["decision_summary"] = None
             annotation["confidence"] = "low"

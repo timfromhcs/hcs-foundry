@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 APP_NAME = "HCS Foundry"
-VERSION = "0.1.0"
+VERSION = "2.0.0"
 SCHEMA_VERSION = 1
 API_PREFIX = "/api/v1"
 
@@ -30,6 +30,10 @@ DEFAULT_UI_ORIGINS = [
 
 
 def repo_root() -> Path:
+    """Repository root, or the PyInstaller bundle root when frozen."""
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        return Path(bundle)
     return Path(__file__).resolve().parents[2]
 
 
@@ -174,4 +178,33 @@ def load_settings() -> Settings:
         log_level=_env("FOUNDRY_LOG_LEVEL", "INFO") or "INFO",
     )
     settings.ensure_dirs()
+    return settings
+
+
+def apply_overrides(settings: Settings, overrides: dict | None) -> Settings:
+    """Apply persisted settings from the database over the defaults."""
+    if not overrides:
+        return settings
+    if isinstance(overrides.get("model_roots"), list):
+        roots = [Path(p).expanduser() for p in overrides["model_roots"] if isinstance(p, str) and p.strip()]
+        if roots:
+            settings.model_roots = roots
+    if isinstance(overrides.get("import_roots"), list):
+        roots = [Path(p).expanduser() for p in overrides["import_roots"] if isinstance(p, str) and p.strip()]
+        if roots:
+            settings.import_roots = roots
+    if isinstance(overrides.get("ui_origins"), list):
+        origins = [str(o) for o in overrides["ui_origins"] if isinstance(o, str) and o.strip()]
+        if origins:
+            settings.ui_origins = origins
+    if isinstance(overrides.get("os_reserve_ratio"), (int, float)):
+        settings.os_reserve_ratio = max(0.05, min(0.5, float(overrides["os_reserve_ratio"])))
+    if isinstance(overrides.get("gpu_headroom_bytes"), (int, float)):
+        settings.gpu_headroom_bytes = max(0, int(overrides["gpu_headroom_bytes"]))
+    if isinstance(overrides.get("allow_concurrent_heavy_jobs"), bool):
+        settings.allow_concurrent_heavy_jobs = overrides["allow_concurrent_heavy_jobs"]
+    if isinstance(overrides.get("llama_server_candidates"), list):
+        settings.llama_server_candidates = [
+            Path(p).expanduser() for p in overrides["llama_server_candidates"] if isinstance(p, str) and p.strip()
+        ]
     return settings

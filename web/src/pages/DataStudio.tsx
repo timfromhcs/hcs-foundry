@@ -376,6 +376,7 @@ function DatasetDetail({
   const [enrichJob, setEnrichJob] = useState<string | null>(null)
   const job = useJob(enrichJob)
   const annotations = useAsync(() => api.annotations(dataset.id), [dataset.id])
+  const gateway = useAsync(() => api.gatewayStatus(), [])
 
   useEffect(() => {
     if (job.job?.status === 'succeeded') {
@@ -453,6 +454,24 @@ function DatasetDetail({
             }
           }}>
             {t('data.enrich_model')}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="globe"
+            disabled={dataset.status === 'frozen' || !gateway.data?.enabled}
+            title={gateway.data?.enabled ? t('settings.cloud_warning') : t('data.gateway_disabled')}
+            onClick={async () => {
+              try {
+                const id = await startJob(() => api.enrichDataset(dataset.id, 'gateway', 25), t('data.enrich'))
+                setEnrichJob(id)
+              } catch (error) {
+                if (error instanceof ApiError && error.code === 'gateway_disabled') notify('warn', t('data.gateway_disabled'))
+                else notify('danger', error instanceof Error ? error.message : String(error))
+              }
+            }}
+          >
+            {t('data.enrich_gateway')}
           </Button>
           {job.job ? <Progress value={job.job.progress} indeterminate={job.job.progress === 0} /> : null}
         </div>
