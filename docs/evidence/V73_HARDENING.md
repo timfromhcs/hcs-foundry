@@ -59,7 +59,7 @@ backend (windows, py3.14)   309 passed (40 new)
 frontend (vitest)            17 passed
 E2E (playwright)             10 passed
 build                        green
-CI                           see the run id in the release report of the tag
+CI                           41452895847, 41453257383, 41453292524 (tag commit) - all green
 ```
 
 ## Open, and why
