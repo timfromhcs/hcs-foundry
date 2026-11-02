@@ -2,6 +2,52 @@
 
 All notable changes to HCS Foundry.
 
+## [6.0.0] — 2026-11-02
+
+Two asks: make the 2–4B class usable locally, and add "virtual RAM on HDD with smart use".
+
+### Added
+
+- **Tiered weight cache** (`foundry/training/vram.py`): hot RAM LRU with a hard byte budget,
+  a memory-mapped arena file on disk (`data/cache/vram/arena.bin`, grown lazily in 64 MB steps),
+  and the INT4 store as the cold tier. `Int4Linear` and its backward pass go through it, so a
+  block can be reused across passes. Knobs: `--vram-gb`, `--vram-mode auto|off`,
+  `FOUNDRY_VRAM_PREFETCH`, `FOUNDRY_INT4_BLOCK`. CLI `foundry vram status|clear`,
+  API `GET /training/vram` + `POST /training/vram/clear`, `vram.stats` in every manifest.
+- **`train int4 --store <dir>`** reuses an existing store instead of rebuilding it.
+- **2B class proven end to end**: Qwen3-1.7B → INT4 training (loss 5.023 → 4.081, peak RSS
+  4496 MB) → merge (3 shards, 3.80 GiB) → GGUF F16 (3881 MiB) → Q4_K_M (1223 MiB) → answers
+  "Hallo Welt" at 51.4 tok/s (`docs/evidence/v6_2b.md`).
+- **4B artifact proven**: the v4.1 4B adapter (200 layers) merges into 8.70 GiB of fp16 shards
+  in 514 s (`docs/evidence/v6_4b.md`).
+
+### Changed
+
+- The cache is **off by default**. Measured on Qwen3-0.6B, same store, 2 steps: 20.7 s without,
+  117.1 s with a 3 GB RAM tier, 63.5 s with arena + prefetch. Keeping fp32 blocks resident
+  pushes the mapped INT4 store out of the page cache, so a hit costs a store re-read. Numbers in
+  `docs/evidence/v6_vram.md`; the knob stays for machines where a miss is more expensive than a
+  memcpy.
+- Prefetching is opt-in (`FOUNDRY_VRAM_PREFETCH=1`); prefetching the immediately-next block
+  duplicates work.
+
+### Fixed
+
+- A 6 GB `truncate` for the arena cost 47 s per run on NTFS; the file now grows on demand
+  (0.10 s).
+- `budget_bytes=0` meant "unlimited" instead of "cache disabled".
+- The prefetch hit counter never incremented.
+
+### Not claimed
+
+- **4B training was not re-run today.** Two attempts stalled in page faults while the host sat at
+  ~3.6 GB free / 89 % commit (other agent processes); no step completed, so no number is
+  reported. The last complete 4B training run remains the v4.1 one.
+- **4B GGUF export** depends on `convert_hf_to_gguf.py` support for the Qwen3.5-VL
+  architecture; the result is recorded in `docs/evidence/v6_4b.md` either way.
+- Activation checkpointing was planned and cancelled with a measurement (4B activations at
+  seq 128 are ~84 MB against a multi-GB private peak).
+
 ## [5.0.0] — 2026-11-02
 
 Turns the proven mechanisms into one usable path: a model that was trained with INT4 now

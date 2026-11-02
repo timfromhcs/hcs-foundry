@@ -181,7 +181,7 @@ footer .row{gap:20px}
 
 <main id="top">
   <div class="wrap hero">
-    <span class="eyebrow">● v5.0.0 · local-first · MIT</span>
+    <span class="eyebrow">● v6.0.0 · local-first · MIT</span>
     <h1 style="margin-top:22px">Your local AI model lab.<br><span style="color:var(--accent)">Built to learn, tested to improve.</span></h1>
     <p class="lead">Pull GGUF models from Hugging Face, run them on Vulkan, clean your own agent logs, fine-tune LoRA or INT4, export and quantize GGUF, convert dense models to MoE, and benchmark coding and agentic tasks — all on one machine.</p>
     <div class="cta">
@@ -265,13 +265,16 @@ footer .row{gap:20px}
             <tr><td><b>Vulkan sweep</b></td><td>51.4 → 107.8 tok/s (2.1×)</td><td class="num">ngl 0 → 99</td></tr>
             <tr><td><b>Auto SFT</b></td><td>eval 4.344 → 4.233</td><td class="num">6 steps</td></tr>
             <tr><td><b>INT4 SFT</b></td><td>loss 5.72 → 4.89</td><td class="num">196 layers</td></tr>
+            <tr><td><b>1.7B, train → GGUF</b></td><td>loss 5.02 → 4.08 · Q4_K_M 1.2 GiB · 51 tok/s</td><td class="num">full chain, local</td></tr>
             <tr><td><b>4B INT4, disk-backed</b></td><td>loss 4.45 → 3.55 in 51 s</td><td class="num">200 layers, 4.57 GB store</td></tr>
-            <tr><td><b>4B Q4_K_M</b></td><td>loads and answers</td><td class="num">ctx 512, Vulkan</td></tr>
+            <tr><td><b>4B adapter → fp16</b></td><td>8.70 GiB in 514 s</td><td class="num">6 shards, 200 layers</td></tr>
+            <tr><td><b>4B → GGUF, answered</b></td><td>Q4_K_M 2.6 GiB · 8.8 tok/s</td><td class="num">from our own adapter</td></tr>
+            <tr><td><b>Tiered cache (opt-in)</b></td><td>20.7 s off · 117.1 s on</td><td class="num">0.6B, 2 steps</td></tr>
           </tbody>
         </table>
       </div>
       <div class="callout warn reveal" style="margin-top:18px">
-        <div><b>Honest limits.</b> A <i>quality</i> 4B/8B fine-tune is out of reach here: 18.0 GiB in fp32 against ~11 GiB available. A 4B run is possible only through the disk-backed INT4 store, two steps at a time, and it is not a finished model. Vulkan accelerates inference, not training. Official SWE-bench assets are not bundled.</div>
+        <div><b>Honest limits.</b> A <i>quality</i> 4B/8B fine-tune is out of reach here: 18.0 GiB in fp32 against ~11 GiB available. The 4B runs prove the mechanism with a few steps, not a better model. The optional RAM/disk cache was measured to be <b>slower</b> on this machine, so it is off by default. Vulkan accelerates inference, not training. Official SWE-bench assets are not bundled.</div>
       </div>
     </div>
   </section>

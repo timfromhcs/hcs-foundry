@@ -148,8 +148,8 @@ then document the blocker in this file and continue with the next independent pa
 | WP | Status | Evidence |
 |---|---|---|
 | V1 cache module | **done** | `training/vram.py` + 8 tests (hits, eviction, arena wrap, prefetch, budget cap) |
-| V2 INT4 wiring | **in progress** | cache in `Int4Linear`, `--vram-gb/--vram-mode`, `vram status/clear`, `GET /training/vram`; needs a real run |
-| V3 checkpointing | open | |
-| V4 2B chain | open | |
-| V5 4B chain | open | |
-| V6 release | open | |
+| V2 INT4 wiring | **done, opt-in** | cache in `Int4Linear` + backward, `--vram-gb/--vram-mode`, `vram status/clear`, `GET /training/vram`; measured 20.7 s (off) vs 117 s / 63.5 s (on) → default off (`docs/evidence/v6_vram.md`) |
+| V3 checkpointing | **cancelled with measurement** | 4B activations at seq 128 ≈ 84 MB against a multi-GB private peak — not the lever |
+| V4 2B chain | **done** | `docs/evidence/v6_2b.md` — Qwen3-1.7B, loss 5.023 → 4.081, merge 3.80 GiB, Q4_K_M 1223 MiB, "Hallo Welt" at 51.4 tok/s |
+| V5 4B chain | **done** | `docs/evidence/v6_4b.md` — v4.1 adapter → 8.70 GiB fp16 (514 s) → GGUF F16 8264 MiB → Q4_K_M 2655 MiB → answers "Hallo Welt" at 8.75 tok/s. The 4B *re-training* today stalled under host memory pressure and is not claimed. |
+| V6 release | **in progress** | version bump, docs, EXE, tag `v6.0.0` |

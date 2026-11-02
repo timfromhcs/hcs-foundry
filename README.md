@@ -12,7 +12,7 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-6.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
@@ -72,7 +72,7 @@ Three rules drive the code:
 | **Inference** | Supervised `llama-server`, Vulkan offload, streaming, cancel, metrics, auto-tuned `ngl` | ✅ 2.1× measured |
 | **Data Studio** | 5 session adapters, consent gate, redaction, exact + near dedupe, leakage-safe splits, freeze, export | ✅ |
 | **Identity Maker** | One prompt → editable identity card → synthetic dataset → deterministic evaluation | ✅ |
-| **Training** | SFT, DPO, distillation, INT4/QLoRA (in-RAM or disk-backed); OpenEval; auto LR/stop; best checkpoint; playbook | ✅ 0.6B + 4B proven |
+| **Training** | SFT, DPO, distillation, INT4/QLoRA (in-RAM, streaming or disk store); tiered weight cache (opt-in); OpenEval; auto LR/stop; best checkpoint | ✅ 0.6B, 1.7B, 4B |
 | **GGUF out** | Merge adapter → convert to GGUF → quantize Q2–Q8 → verify by inference | ✅ 0.6B end-to-end, incl. INT4 adapters |
 | **MoEfication** | Dense FFN → N experts + top-k router, forward-checked, memory-guarded | ✅ small scale |
 | **Benchmarks** | Instruction, executed codegen, repo-fix, agentic, SWE-bench-format adapter (venv per case) | ✅ |
@@ -181,6 +181,8 @@ See [docs/CLI.md](docs/CLI.md) for every flag.
 | **SFT / LoRA** | transformers + PEFT, architecture-aware targets, checkpoints, resume | loss 6.04 → 5.01 on 0.6B |
 | **INT4 / QLoRA** | group-wise 4-bit packing, dequantized per layer, LoRA in fp32, no bitsandbytes | 196 layers, loss 5.72 → 4.89 |
 | **INT4 + disk store** | weights memory-mapped from `int4-store/`, dequantize-recompute in backward | 4B, 200 layers, loss 4.45 → 3.55 |
+| **INT4 + tiered cache** | opt-in RAM LRU + mmap arena on disk (`--vram-gb`) | measured: slower here, off by default (`docs/evidence/v6_vram.md`) |
+| **1.7B end to end** | train → merge → GGUF F16 → Q4_K_M → answer | loss 5.02 → 4.08, 51.4 tok/s (`docs/evidence/v6_2b.md`) |
 | **DPO** | synthetic preference pairs, adapter-disabled reference | 2-step smoke |
 | **Distillation** | local or gateway teacher writes answers, student SFT | tested |
 | **Auto** | OpenEval + LR halving + early stop + best checkpoint + playbook | eval 4.344 → 4.233 |
@@ -214,6 +216,9 @@ Measured on the test machine (Ryzen 7 7735HS, Radeon 680M, 19.8 GiB):
 | Auto SFT (6 steps) | eval 4.344 → 4.233 |
 | INT4 SFT | loss 5.72 → 4.89 |
 | INT4 SFT, 4B, disk store | 200 layers, loss 4.45 → 3.55 in 51 s, 4.57 GB store, 9.45 GB peak RSS (4.57 GB of it file-backed) |
+| INT4 SFT, 1.7B + GGUF | loss 5.02 → 4.08, merge 3.80 GiB, Q4_K_M 1223 MiB, **51.4 tok/s** answer |
+| Tiered cache (0.6B, 2 steps) | 20.7 s off · 117.1 s with a 3 GB RAM tier · off by default |
+| 4B INT4 adapter → fp16 | 200 layers, 6 shards, 8.70 GiB in 514 s |
 | 4B Q4_K_M | loads and answers at ctx 512 |
 
 ## Architecture
@@ -288,7 +293,7 @@ The full list is in [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/K
 ## Development
 
 ```bash
-cd server && python -m pytest -q      # 178 tests
+cd server && python -m pytest -q      # 204 tests
 cd web && npx vitest run              # 7 tests (incl. i18n parity)
 cd web && npx playwright test         # 7 E2E tests (service must run)
 ```

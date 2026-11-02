@@ -789,6 +789,7 @@ def cmd_train_int4(args) -> int:
             log=(None if args.json else print),
             streaming=args.streaming,
             offload=offload,
+            store_dir=getattr(args, "store", None),
             vram_gb=getattr(args, "vram_gb", None),
             vram_mode=getattr(args, "vram_mode", "auto"),
             vram_dir=state.settings.data_dir / "cache" / "vram",
@@ -1152,6 +1153,7 @@ def build_parser() -> argparse.ArgumentParser:
     t_int4.add_argument("--no-offload", action="store_true", help="keep the INT4 weights in RAM even if the estimate does not fit")
     t_int4.add_argument("--vram-gb", type=float, default=None, help="hot-tier budget for the tiered weight cache (default: auto from free RAM)")
     t_int4.add_argument("--vram-mode", default="auto", choices=["auto", "off"], help="auto budgets from live RAM; off disables the cache")
+    t_int4.add_argument("--store", default=None, help="reuse an existing int4-store directory instead of building one next to --output")
     t_int4.add_argument("--output", default=None)
     t_int4.add_argument("--json", action="store_true")
     t_int4.set_defaults(func=cmd_train_int4)

@@ -181,6 +181,32 @@ foundry train int4 --dataset ds_xxx --model <path> --steps 2 --seq 128 --streami
 
 The measured 4B run is in [`docs/evidence/v41_int4_4b.md`](evidence/v41_int4_4b.md).
 
+### Tiered cache: "virtual RAM on disk" (v6, opt-in)
+
+`foundry/training/vram.py` can keep dequantized blocks in a bounded RAM tier (LRU) and spill them
+to a memory-mapped arena file (`data/cache/vram/arena.bin`, grown lazily in 64 MB steps). It is
+**off by default**, because it was measured to be slower here:
+
+| Qwen3-0.6B, 2 steps, seq 128 | Duration | Peak RSS |
+|---|---|---|
+| cache off | **20.7 s** | 2937 MB |
+| `--vram-gb 3` (RAM tier) | 117.1 s | 4536 MB |
+| arena + prefetch | 63.5 s | 4318 MB |
+
+Keeping fp32 blocks resident pushes the mapped INT4 store out of the page cache, so a cache hit
+costs a store re-read. Use it only if a block miss is much more expensive than a memcpy on your
+machine:
+
+```bash
+foundry train int4 … --vram-gb 4          # explicit opt-in
+foundry train int4 … --vram-mode off      # explicit off (default)
+foundry vram status                        # arena size + last run's cache stats
+foundry vram clear                         # it is only a cache
+```
+
+Every manifest records `vram.stats` when the cache ran, and `null` when it did not.
+
+
 ## Turning an INT4 adapter into a runnable model (v5)
 
 An INT4 adapter is not a PEFT directory, so it cannot be handed to `llama.cpp` directly.
