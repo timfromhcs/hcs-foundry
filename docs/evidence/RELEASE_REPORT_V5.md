@@ -72,9 +72,12 @@ cd web && npm run build && npx playwright test   # 9 passed (service on :8770)
 
 | Item | Value |
 |---|---|
-| Commit | `11f5905` on `main` |
-| Tag | `v5.0.0` |
-| CI | run `41409045475` — green (backend, frontend, Playwright) |
+| Tag | `v5.0.0` → commit `11f5905` |
+| Follow-up fix commit | `c89675f` (preflights, PNA, version single-sourcing, deploy hygiene) |
+| CI | `41409045475` (tag) and `41412423599` (follow-up) — both green |
 | GitHub Release | <https://github.com/timfromhcs/hcs-foundry/releases/tag/v5.0.0> (Latest) |
-| Windows EXE | `HCSFoundry.exe`, 384,044,000 bytes, built from this commit, `sha256:b15b8dc017dc…` |
+| Windows EXE | `HCSFoundry.exe`, 384,045,919 bytes, built from `c89675f`, `sha256:28a8602cad65…` |
 | Landing page | <https://hcs-foundry-site.vercel.app> · pair section <https://hcs-foundry-site.vercel.app/#pair> |
+
+The EXE was rebuilt after the follow-up fix so that the binary reports 5.0.0 (before the fix
+`config.VERSION` still said 4.0.0) and ships the Private Network Access header.
