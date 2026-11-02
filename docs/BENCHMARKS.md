@@ -1,55 +1,67 @@
-# Benchmarks
+# Benchmarks — how to read a number, and when a difference is real
 
-All scores produced by HCS Foundry are **project-specific smoke** results. They are not official leaderboard numbers and must not be presented as such.
+All suites are **project-specific**: they measure this machine, this model file and this runtime.
+A score here is never a leaderboard claim.
 
-## Suites in 0.1.0
+## What is measured
 
-### 1. Instruction adherence (deterministic)
+| Suite | Oracle | Cases (current) |
+|---|---|---|
+| `instruction_adherence` | deterministic assertions (format, language, secrecy, arithmetic) | 6 |
+| `codegen_exec` | executed unit tests in a sandbox | 4 |
+| `repo_fix` | a real patch applied to a fixture repo, tests run in a venv | 3 |
+| `agentic` | multi-step file tasks with deterministic checks | 3 |
+| `latency_throughput` | measured tokens/s, TTFT | — |
 
-Six cases with deterministic assertions:
+## Why a difference needs an interval
 
-| Case | Assertion |
-|---|---|
-| `exact_token` | reply is exactly `PONG` |
-| `json_only` | reply parses as `{"ok": true, "count": 3}` |
-| `german` | reply is detected as German |
-| `system_prompt_secrecy` | reply does not contain the system prompt |
-| `counting` | reply contains `1, 2, 3, 4, 5` |
-| `arithmetic` | reply contains `42` |
+The Upgrade Lab used to promote on `delta ≥ 0.05`. With six cases one flipped case is **16.7 pp**,
+and the smallest effect that six cases could ever detect at 80 % power is ≈ 63 pp. That gate could
+only react to noise or to enormous effects.
 
-### 2. Code generation (executed)
+`foundry/train/stats.py` replaces it:
 
-Four small Python tasks. The generated code is extracted from a fenced block, executed in a subprocess with a 15 s timeout inside a temporary directory, and checked against unit tests. A failure records the assertion or exception.
+```python
+from foundry.train.stats import paired_compare, required_n, wilson_ci
 
-### 3. Latency & throughput (measurement)
-
-Three prompts; records time to first token, completion tokens, tokens/sec and wall time. Reported as a **measurement**, not pass/fail. On the tested machine (2B Q4_K_M, Vulkan): ~62 tokens/s and ~0.8 s TTFT for a short reply.
-
-### 4. UI regression (external)
-
-Playwright from `web/`: routes, keyboard focus, responsive overflow, reduced motion, language switch, theme persistence. The backend reports it as *not runnable here* unless Playwright is installed in `web/`.
-
-## Comparability rules
-
-- Every run stores model id and hash, suite version, sampling settings, hardware profile and comparability label.
-- Comparing runs from different suites shows per-case deltas only and marks `fair: false`.
-- An LLM judge is stored under `aggregate.judge` as a secondary signal. It can never change a deterministic pass/fail.
-
-## Running
-
-```bash
-# from the UI: Benchmarks → Run suite
-# or via API
-curl -X POST http://127.0.0.1:8770/api/v1/benchmarks/runs \
-  -H "Authorization: Bearer $TOKEN" -H "X-Foundry-Client: 1" \
-  -H "Content-Type: application/json" \
-  -d '{"suite_id":"instruction_adherence","judge":false}'
+baseline  = [1, 0, 1, 1, 0, 1]      # per-item outcome, 1 = pass
+candidate = [1, 1, 1, 1, 0, 1]
+result = paired_compare(candidate, baseline, target_delta=0.05)
+result.to_public()
+# {'delta': 0.1667, 'ci_low': -0.09, 'ci_high': 0.42, 'p_value': 1.0, 'n': 6,
+#  'method': 'mcnemar_exact', 'underpowered': True, 'required_n': 628}
 ```
 
-## Reports
+- **Paired** differences cancel the shared difficulty of an item; comparing aggregate means throws
+  that information away.
+- **Exact McNemar** for binary outcomes, a clustered bootstrap for continuous scores. Pass
+  `clusters=<template_id list>` when items come from generated templates — otherwise the interval
+  pretends the items are independent.
+- **`underpowered`** is set when the observed discordance implies a required n above the sample
+  size. A promotion is refused with that word in the reason, not silently allowed.
+- **`required_n(delta, discordance)`** answers "how many items do I need?": 157 for a 10 pp effect
+  at 20 % discordance, 628 for 5 pp.
 
-`GET /api/v1/benchmarks/runs/{id}/export?format=json|csv|md` returns a report with run id, model hash, suite version, cases and the comparability note.
+## The gate (Upgrade Lab)
 
-## Not bundled
+`promote()` refuses unless all of these hold:
 
-SWE-bench, LiveCodeBench, Terminal-Bench, GAIA, WebArena, OSWorld, MMMU and ScreenSpot require assets, isolation and licensing that are not shipped. The UI lists them as *not run* with a link to the official instructions rather than faking a local subset score.
+1. a paired result is recorded (`metrics["paired"]`),
+2. `n ≥ 30` and the 95 % CI lower bound is **> 0**,
+3. the effect is at least `min_effect` (default 3 pp, the practical minimum),
+4. no critical regression (`system_prompt_secrecy`),
+5. the holdout hash is unchanged and the dataset is still frozen,
+6. a named human approver.
+
+The old `threshold=` argument still works as a deprecated alias for `min_effect`.
+
+## Reproducing a comparison
+
+```bash
+foundry bench instruction_adherence --limit 200     # store per-item outcomes
+curl -s "$BASE/api/v1/benchmarks/runs" | jq '.runs[0].results.cases'
+```
+
+Each run stores a stable `case_id` and a per-item status, which is what makes the paired test
+possible. A comparison between runs whose case ids do not overlap is rejected as unfair rather
+than guessed.

@@ -294,6 +294,16 @@ def evaluate_candidate(
         "candidate_run_id": run["run_id"],
         "evaluated_at": utc_now(),
     }
+    # Paired statistics over the *same* case ids: the only way this gate can tell an
+    # improvement from noise (a 6-case suite cannot; see PLAN.md §6.3).
+    paired_items = _paired_items(parent.get("cases") or [], results.get("cases") or [])
+    if paired_items:
+        from .train.stats import paired_compare
+
+        baseline_items, candidate_items = paired_items
+        paired = paired_compare(candidate_items, baseline_items, target_delta=max(0.05, abs(delta) or 0.05))
+        metrics["paired"] = paired.to_public()
+        metrics["n_items"] = paired.n
     db.execute(
         "UPDATE upgrade_candidates SET status='evaluated', metrics=? WHERE id=?",
         (json.dumps(metrics), candidate_id),
@@ -306,13 +316,34 @@ def evaluate_candidate(
     return {"candidate_id": candidate_id, "metrics": metrics, "run_id": run["run_id"], "results": results}
 
 
+def _paired_items(baseline_cases: list[dict], candidate_cases: list[dict]) -> tuple[list[float], list[float]] | None:
+    """Aligned per-item outcomes (1.0 pass / 0.0 not) for cases present in both runs."""
+    baseline = {case.get("case_id"): 1.0 if case.get("status") == "pass" else 0.0 for case in baseline_cases}
+    candidate = {case.get("case_id"): 1.0 if case.get("status") == "pass" else 0.0 for case in candidate_cases}
+    shared = [case_id for case_id in baseline if case_id in candidate and case_id is not None]
+    if not shared:
+        return None
+    return [baseline[case_id] for case_id in shared], [candidate[case_id] for case_id in shared]
+
+
 def promote(
     db: Database,
     candidate_id: str,
     *,
     approver: str,
-    threshold: float = 0.05,
+    threshold: float | None = None,
+    min_effect: float = 0.03,
+    min_n: int = 30,
 ) -> dict:
+    """Promote an evaluated candidate only if the paired difference is distinguishable from noise.
+
+    ``threshold`` is kept as a deprecated alias for ``min_effect`` so old callers keep working;
+    the significance decision comes from ``metrics["paired"]`` (95 % CI lower bound > 0), never
+    from a fixed delta. A suite with fewer than ``min_n`` paired items is refused as
+    underpowered instead of being promoted on a single flipped case.
+    """
+    if threshold is not None:
+        min_effect = threshold
     candidate = get_candidate(db, candidate_id)
     if not candidate:
         raise KeyError(candidate_id)
@@ -323,8 +354,24 @@ def promote(
 
     if not approver or len(approver.strip()) < 2:
         reasons.append("an explicit human approver is required")
-    if metrics.get("delta", 0) < threshold:
-        reasons.append(f"improvement {metrics.get('delta', 0):+.2%} is below the {threshold:.0%} threshold")
+
+    paired = metrics.get("paired")
+    if not paired:
+        reasons.append("no paired statistics recorded: re-evaluate the candidate on the same suite")
+    else:
+        n = int(paired.get("n") or 0)
+        delta = float(paired.get("delta") or 0.0)
+        if n < min_n:
+            reasons.append(
+                f"underpowered: {n} paired items, at least {min_n} are needed to tell an improvement from noise"
+            )
+        if float(paired.get("ci_low") or 0) <= 0:
+            reasons.append(
+                f"improvement {delta:+.1%} is not distinguishable from noise "
+                f"(95 % CI {paired.get('ci_low', 0):+.1%} … {paired.get('ci_high', 0):+.1%}, n={n})"
+            )
+        if delta < min_effect:
+            reasons.append(f"practical effect {delta:+.1%} is below the {min_effect:.0%} minimum")
     if metrics.get("critical_regressions"):
         reasons.append(f"critical regressions: {', '.join(metrics['critical_regressions'])}")
     if metrics.get("candidate_run_id") is None:

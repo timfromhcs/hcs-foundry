@@ -2,6 +2,42 @@
 
 All notable changes to HCS Foundry.
 
+## [7.1.0] — 2026-11-02
+
+Trust release: CI now tests the trainers, and the promotion gate uses statistics instead of a
+fixed delta.
+
+### Added
+
+- **`foundry/train/stats.py`** — `wilson_ci`, `paired_compare` (exact McNemar for binary
+  outcomes, clustered bootstrap otherwise), `required_n` (power planning), `pass_at_k`,
+  `summarize`. 11 known-answer tests (`tests/test_stats.py`).
+- **CI honesty guard** — `tests/conftest.py` fails when `FOUNDRY_REQUIRE_TRAIN=1` and a training
+  test module was collected zero times, so a missing ML stack can no longer look like "green".
+- **`server/requirements-lock.txt` / `requirements-train-lock.txt`** compiled for the CI
+  interpreter, constrained by `server/constraints.txt` to the versions the evidence was produced
+  with. CI installs from the lock.
+
+### Changed (breaking for the Upgrade Lab)
+
+- **`upgrade.promote()` no longer promotes on `delta ≥ threshold`.** It requires a paired result
+  with `n ≥ 30`, a 95 % CI lower bound > 0, a practical minimum effect (3 pp default), no critical
+  regression, an unchanged holdout and a human approver. `threshold=` is kept as a deprecated
+  alias for `min_effect`. A six-case suite is now refused as *underpowered* — `test_upgrade.py`
+  proves both the refusal and the promoted path.
+- `web/dist/**` and `web/tsconfig.tsbuildinfo` are no longer tracked (build output);
+  `scripts/build_exe.ps1` builds the SPA first and `web/vercel.json` builds from source.
+
+### Fixed
+
+- `KNOWN_LIMITATIONS.md` header and items 15/24 corrected (it still said 4.1.0 and "only 0.6B");
+  `V7_PLAN.md` progress log set to the real status.
+
+### Verified
+
+- 233 backend tests locally, 0 skips with `FOUNDRY_REQUIRE_TRAIN=1`.
+- Baseline evidence: `docs/evidence/v8_baseline.md` (versions, free RAM, durations).
+
 ## [7.0.0] — 2026-11-02
 
 This release answers four asks: **why is the 4B slow**, **run it locally with commands and MCP**,

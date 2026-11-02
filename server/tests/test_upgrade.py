@@ -150,7 +150,25 @@ def test_candidate_lifecycle_and_promotion(db):
     metrics = evaluation["metrics"]
     assert metrics["candidate_score"] == 1.0
     assert metrics["delta"] == pytest.approx(0.25)
+    # The suite is far too small to support a promotion decision.
+    assert 1 <= metrics["paired"]["n"] <= 6
+    assert metrics["paired"]["underpowered"] is True
 
+    refused = promote(db, candidate["id"], approver="reviewer", threshold=0.05)
+    assert refused["promoted"] is False
+    assert any("underpowered" in reason for reason in refused["reasons"])
+
+    # With a properly powered paired result the same candidate promotes.
+    powered = dict(metrics)
+    powered["paired"] = {
+        "delta": 0.12, "se": 0.035, "ci_low": 0.051, "ci_high": 0.189, "p_value": 0.0006,
+        "n": 300, "n_clusters": 300, "n_discordant": 90, "method": "mcnemar_exact",
+        "underpowered": False, "required_n": 157,
+    }
+    db.execute(
+        "UPDATE upgrade_candidates SET metrics=? WHERE id=?",
+        (json.dumps(powered), candidate["id"]),
+    )
     result = promote(db, candidate["id"], approver="reviewer", threshold=0.05)
     assert result["promoted"] is True
     assert get_candidate(db, candidate["id"])["status"] == "promoted"
@@ -158,6 +176,19 @@ def test_candidate_lifecycle_and_promotion(db):
     rolled = rollback(db, candidate["id"])
     assert rolled["rolled_back"] is True
     assert get_candidate(db, candidate["id"])["status"] == "rolled_back"
+
+
+def test_gate_refuses_a_single_flipped_case(db):
+    """LG-3: the old +5 % rule promoted a 1-of-6 flip; the statistics must refuse it."""
+    _seed_run(db)
+    dataset_id = _seed_dataset(db)
+    candidate = create_candidate(db, parent_run_id="bench_seed", dataset_id=dataset_id)
+    evaluate_candidate(db, candidate["id"], FakeServer())
+    result = promote(db, candidate["id"], approver="reviewer")
+    assert result["promoted"] is False
+    reasons = " ".join(result["reasons"])
+    assert "underpowered" in reasons
+    assert "not distinguishable from noise" in reasons
 
 
 def test_promotion_requires_approver(db):
