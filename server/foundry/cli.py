@@ -812,6 +812,99 @@ def cmd_train_int4(args) -> int:
     return 0
 
 
+def cmd_run(args) -> int:
+    """One-screen local health report: hardware, budget, runtime, stores, data."""
+    from .library import list_models
+    from .machine import compute_budget, scan_machine
+    from .training.vram import budget_from_available
+
+    state = build_state()
+    settings = state.settings
+    profile = scan_machine(settings)
+    state.db.set_setting("machine_profile", profile)
+    budget = compute_budget(profile, settings).to_public()
+    models = list_models(state.db)
+    datasets = state.db.query("SELECT id, name, status FROM datasets ORDER BY rowid DESC LIMIT 50")
+    stores = sorted(settings.data_dir.glob("training-runs/*/int4-store"))
+    store_bytes = sum(sum(f.stat().st_size for f in store.glob("*") if f.is_file()) for store in stores)
+    arena = settings.data_dir / "cache" / "vram" / "arena.bin"
+    runtimes = profile.get("runtimes") or {}
+    llama = runtimes.get("llama_server") or {}
+    candidates = llama.get("candidates") or []
+    llama_path = candidates[0].get("path") if candidates else None
+    report = {
+        "machine": {
+            "os": (profile.get("os") or {}).get("name"),
+            "cpu": (profile.get("cpu") or {}).get("model"),
+            "cores": (profile.get("cpu") or {}).get("physical_cores"),
+            "ram_gib": round(((profile.get("memory") or {}).get("total_bytes") or 0) / 1024**3, 1),
+            "gpu": ((profile.get("gpu") or {}).get("devices") or [{}])[0].get("name"),
+            "vulkan": bool(((profile.get("gpu") or {}).get("devices") or [{}])[0].get("unified_memory") is not None),
+        },
+        "budget": {
+            "safe_bytes": budget.get("safe_budget_bytes"),
+            "tier": budget.get("tier_label") or budget.get("tier"),
+            "models": len(models),
+            "verified_models": sum(1 for model in models if model.get("verified_at")),
+        },
+        "runtime": {
+            "llama_server": llama_path,
+            "available": bool(llama_path),
+            "accelerator": candidates[0].get("accelerator") if candidates else None,
+        },
+        "storage": {
+            "data_dir": str(settings.data_dir),
+            "int4_stores": len(stores),
+            "int4_store_gib": round(store_bytes / 1024**3, 2),
+            "vram_arena_mib": round((arena.stat().st_size if arena.exists() else 0) / 1024**2, 1),
+            "vram_auto_budget_mib": round(budget_from_available() / 1024**2),
+        },
+        "data": {
+            "datasets": len(datasets),
+            "frozen": sum(1 for row in datasets if dict(row).get("status") == "frozen"),
+        },
+    }
+    next_steps = []
+    if not models:
+        next_steps.append("no models yet: `foundry hf pull Qwen/Qwen3-0.6B --file model.safetensors --file tokenizer.json`")
+    if report["data"]["frozen"] == 0:
+        next_steps.append("no frozen dataset: `foundry logs clean` or import one in Data Studio")
+    if not report["runtime"]["available"]:
+        next_steps.append("no llama-server discovered: set FOUNDRY_LLAMA_SERVER or install llama.cpp")
+    if models and report["budget"]["verified_models"] == 0:
+        next_steps.append("no model has answered yet: `foundry models verify <id>`")
+    store_gib = report["storage"]["int4_store_gib"]
+    ram_gib = report["machine"]["ram_gib"] or 0
+    if store_gib and store_gib > 0.6 * ram_gib:
+        next_steps.append(
+            f"INT4 stores total {store_gib:.1f} GiB against {ram_gib:.1f} GiB RAM: keep them on the "
+            "fastest disk and train with --seq 64 --steps 1, or use a smaller model"
+        )
+    if not next_steps:
+        next_steps.append("ready: `foundry train int4 --dataset <id> --model <dir> --steps 2 --seq 128`")
+    report["next"] = next_steps
+
+    lines = [
+        f"machine   {report['machine']['cpu']} · {report['machine']['ram_gib']} GiB RAM · {report['machine']['gpu']}",
+        f"budget    {round((report['budget']['safe_bytes'] or 0) / 1024**3, 1)} GiB safe · "
+        f"{report['budget']['models']} models ({report['budget']['verified_models']} verified)",
+        f"runtime   llama-server: {'yes' if report['runtime']['available'] else 'NO'}",
+        f"storage   {report['storage']['int4_stores']} INT4 store(s), {report['storage']['int4_store_gib']} GiB · "
+        f"vram arena {report['storage']['vram_arena_mib']} MiB (auto budget {report['storage']['vram_auto_budget_mib']} MiB)",
+        f"data      {report['data']['datasets']} datasets ({report['data']['frozen']} frozen)",
+        "next      " + "; ".join(next_steps),
+    ]
+    _print(report, args.json, "\n".join(lines))
+    return 0
+
+
+def cmd_mcp(args) -> int:
+    from .mcp_server import run_mcp
+
+    state = build_state()
+    return run_mcp(state)
+
+
 def cmd_vram(args) -> int:
     from .training.vram import budget_from_available, clear_arena
 
@@ -1173,6 +1266,17 @@ def build_parser() -> argparse.ArgumentParser:
     t_merge.add_argument("--shard-gb", type=float, default=1.5)
     t_merge.add_argument("--json", action="store_true")
     t_merge.set_defaults(func=cmd_train_merge_int4)
+
+    mcp = sub.add_parser("mcp", help="Model Context Protocol server for agents (stdio)")
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_sub.add_parser("serve", help="serve MCP over stdin/stdout")
+    mcp_serve.set_defaults(func=cmd_mcp)
+
+    run = sub.add_parser("run", help="local shortcuts that answer a question in one screen")
+    run_sub = run.add_subparsers(dest="run_command", required=True)
+    run_doctor = run_sub.add_parser("doctor", help="hardware, budget, runtime, stores and data at a glance")
+    run_doctor.add_argument("--json", action="store_true")
+    run_doctor.set_defaults(func=cmd_run)
 
     vram = sub.add_parser("vram", help="inspect or clear the virtual-RAM arena on disk")
     vram_sub = vram.add_subparsers(dest="vram_command", required=True)

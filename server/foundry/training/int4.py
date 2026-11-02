@@ -92,11 +92,35 @@ def int4_size_bytes(weight) -> dict:
 
 
 _INT4_MATMUL = None
+_BLOCK_OVERRIDE: int | None = None
 DEFAULT_BLOCK = 256
+TARGET_BLOCK_BYTES = 64 * 1024**2
+
+
+def set_int4_block(rows: int | None) -> None:
+    """Pin the block size for the current run (``None`` restores env/default behaviour)."""
+    global _BLOCK_OVERRIDE
+    _BLOCK_OVERRIDE = None if rows is None else max(1, int(rows))
+
+
+def choose_block_rows(in_features: int, available_bytes: int | None = None) -> int:
+    """Rows per block so one fp32 block stays around 64 MB, at least 4 blocks per matrix.
+
+    A 9216-row MLP would otherwise dequantize 90 MB at once; a 248k-vocabulary embedding would
+    want 2.5 GB. The value is bounded so the loop stays pipelined and the transient stays small.
+    """
+    in_features = max(1, int(in_features))
+    budget = TARGET_BLOCK_BYTES
+    if available_bytes is not None and available_bytes < 2 * 1024**3:
+        budget = 32 * 1024**2
+    rows = max(32, budget // (in_features * 4))
+    return min(256, (rows // 32) * 32 or 32)
 
 
 def int4_block_size() -> int:
-    """Rows of the output matrix dequantized at once (``FOUNDRY_INT4_BLOCK``)."""
+    """Rows of the output matrix dequantized at once."""
+    if _BLOCK_OVERRIDE is not None:
+        return _BLOCK_OVERRIDE
     try:
         value = int(os.environ.get("FOUNDRY_INT4_BLOCK", DEFAULT_BLOCK))
     except (TypeError, ValueError):
@@ -606,6 +630,14 @@ def train_int4(
                 cache.close()
             except Exception:  # noqa: BLE001 - cleanup must not mask the real error
                 pass
+        prefetcher = holders.get("prefetch")
+        if prefetcher is not None:
+            try:
+                prefetcher.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        if holders.get("block") is not None or "block" in holders:
+            set_int4_block(None)
 
 
 def _train_int4(
@@ -772,6 +804,55 @@ def _train_int4(
     if not trainable:
         raise RuntimeError("no LoRA parameters were attached; check target modules")
 
+    # ---- run-level tuning: block size, threads, cache warm-up -----------------
+    text_config = getattr(model.config, "text_config", model.config)
+    hidden = int(getattr(text_config, "hidden_size", 0) or 0)
+    available = psutil.virtual_memory().available
+    block_rows = int4_block_size() if os.environ.get("FOUNDRY_INT4_BLOCK") else choose_block_rows(hidden or 2048, available)
+    set_int4_block(block_rows)
+    if holders is not None:
+        holders["block"] = None  # reset in the wrapper's finally
+
+    threads_before = torch.get_num_threads()
+    requested_threads = os.environ.get("FOUNDRY_TORCH_THREADS")
+    if requested_threads:
+        try:
+            torch.set_num_threads(max(1, int(requested_threads)))
+        except (TypeError, ValueError, RuntimeError):
+            pass
+    tuning = {
+        "block_rows": block_rows,
+        "hidden_size": hidden or None,
+        "available_bytes": int(available),
+        "torch_threads_before": threads_before,
+        "torch_threads_used": torch.get_num_threads(),
+    }
+
+    prefetch_stats = None
+    store_bytes = 0
+    if offload_mode:
+        store_bytes = sum(f.stat().st_size for f in Path(target_store).glob("*") if f.is_file())
+    prefetch_wanted = offload_mode and os.environ.get("FOUNDRY_STORE_PREFETCH", "1") != "0"
+    # Measured: prefetching more than the machine can keep resident is wasted I/O (105 MB/s of
+    # disk that is evicted again). Only warm a store that comfortably fits next to the process.
+    if prefetch_wanted and store_bytes > max(256 * 1024**2, int(available * 0.6)):
+        prefetch_wanted = False
+        if log:
+            log(
+                f"prefetch: skipped — store is {store_bytes / 1024**3:.2f} GiB against "
+                f"{available / 1024**3:.1f} GiB available (it would be evicted again)"
+            )
+    if prefetch_wanted:
+        from .store_prefetch import StorePrefetcher
+
+        prefetcher = StorePrefetcher(target_store, log=log).start()
+        if holders is not None:
+            holders["prefetch"] = prefetcher
+        if log:
+            log("prefetch: warming the store into the page cache in the background")
+    if log:
+        log(f"tuning: block {block_rows} rows, {tuning['torch_threads_used']} torch threads")
+
     optimizer = torch.optim.AdamW(trainable, lr=config.learning_rate)
     model.train()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -852,6 +933,13 @@ def _train_int4(
     tokenizer.save_pretrained(str(adapter))
 
     memory = sampler.report()
+    prefetch_report = None
+    if holders is not None:
+        holder = holders.get("prefetch")
+        if holder is not None:
+            prefetch_report = holder.report()
+        elif offload_mode:
+            prefetch_report = {"enabled": False, "reason": "store larger than the RAM that can hold it"}
     if vram_cache is not None and vram_meta is not None:
         vram_meta["stats"] = vram_cache.stats_public()
         vram_meta["note"] = (
@@ -878,6 +966,8 @@ def _train_int4(
         "streaming": bool(streaming),
         "offload": store_meta,
         "vram": vram_meta,
+        "prefetch": prefetch_report,
+        "tuning": tuning,
         "resources": resources,
         "memory": memory,
         "note": (

@@ -52,10 +52,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8770)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--data-dir", default=None)
+    parser.add_argument("--mcp", action="store_true", help="serve the Model Context Protocol on stdin/stdout instead of the web UI")
+    parser.add_argument("--doctor", action="store_true", help="print a local health report and exit")
     args = parser.parse_args(argv)
 
     os.environ.setdefault("FOUNDRY_DATA_DIR", str(Path(args.data_dir).expanduser() if args.data_dir else _default_data_dir()))
     os.environ.setdefault("FOUNDRY_HOST", "127.0.0.1")
+
+    if args.mcp:
+        from foundry.cli import build_state
+
+        from foundry.mcp_server import run_mcp
+
+        return run_mcp(build_state())
+
+    if args.doctor:
+        from foundry.cli import main as cli_main
+
+        return cli_main(["run", "doctor"])
+
     port = _free_port(args.port)
     os.environ["FOUNDRY_PORT"] = str(port)
 
