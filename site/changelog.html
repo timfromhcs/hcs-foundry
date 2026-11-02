@@ -49,6 +49,36 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2
 <h1>Changelog</h1>
 <p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
 <p>All notable changes to HCS Foundry.</p>
+<h2>[7.3.0] — 2026-11-02</h2>
+<p>Hardening release: the conformance matrix can now fail a trainer, specs are reachable over HTTP and</p>
+<p>MCP, and there is verifiable task data to train and measure on.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>Conformance checks C3–C6, C9–C11</strong> (<code>foundry/train/conformance.py</code>) and <code>run_matrix()</code>, which runs one trainer once and applies every check that can be judged from that run. Checks that need a second run, a resume or a cancel report <code>not_applicable</code> with the reason — never a silent pass. <code>foundry train doctor --model … --dataset …</code> now prints the full matrix.</li>
+<li>C3 learning needs ≥ 3 loss points; a one-step run is refused, not passed.</li>
+<li>C4 repeatability prints the observed <code>max |LoRA-B|</code> delta against a stated tolerance.</li>
+<li>C9 reloads the fp32 LoRA adapter and runs a finite forward pass.</li>
+<li>C10 refuses a <code>completed</code> run whose adapter never moved.</li>
+<li>C11 refuses a run whose estimate cannot fit the wall-clock budget.</li>
+<li><strong><code>POST /api/v1/training/plan</code></strong> (validate a spec, return trainer + preflight, no compute) and <strong><code>POST /api/v1/training/runs</code></strong> (queue the same spec; a blocked preflight is a 409 with the blockers, not a failed job).</li>
+<li><strong>MCP <code>train_plan</code> and <code>eval_compare</code></strong> — 11 typed tools. <code>eval_compare</code> pairs two stored benchmark runs by case id, refuses different suites/versions, and returns the paired CI plus the regression case list.</li>
+<li><strong>Verifiable task generators</strong> (<code>foundry/tasks/generators.py</code>, <code>docs/TASK_GENERATORS.md</code>): <code>arith</code>, <code>fmt</code>, <code>extract</code>, <code>toolcall</code> with deterministic verifiers, a 60/20/20 <strong>template-ranked</strong> split (a test template cannot appear in training), decontamination with a drop count, and a readiness gate (<code>train ≥ 60</code>, <code>dev ≥ 20</code>, <code>test ≥ 20</code>, no template leak). CLI: <code>foundry tasks generate|check</code>.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Legacy run manifests now record the full loss trajectory (<code>losses</code>), not only the first and last point. Without it C3 could only ever say &quot;not applicable&quot; on a real run.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>309 backend tests (40 new), 17 frontend, 10 E2E, build green.</li>
+<li><code>foundry tasks generate --family all --seed 1 --per-template 10</code> → 100 items, splits 60/20/20, readiness ok; <code>tasks check</code> on the written JSONL reproduces it.</li>
+</ul>
+<h3>Not claimed</h3>
+<ul>
+<li><strong>No quality improvement.</strong> S5 (the flywheel measurement) has not run; no base-vs-candidate comparison exists.</li>
+<li><strong>C5 (resume) and C6 (cancel) are <code>not_applicable</code></strong> for the current trainers: they do not expose a resume path and the legacy manifests do not record a cancellation status.</li>
+<li>The plan&#x27;s remaining phases S4 (<code>rft</code>), S5 (measurement), S6 (engine/quant gates) and S7 (release) are open in <code>docs/plan/V8_STABLE_PLAN.md</code> with their gates.</li>
+</ul>
 <h2>[7.2.0] — 2026-11-02</h2>
 <p>Browser runtime release: a small model can now run <strong>inside the tab</strong> (WebGPU/WASM via</p>
 <p>Transformers.js), fed from the local service instead of a CDN. Detection and limits are measured,</p>
