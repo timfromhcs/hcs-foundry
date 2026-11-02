@@ -789,6 +789,9 @@ def cmd_train_int4(args) -> int:
             log=(None if args.json else print),
             streaming=args.streaming,
             offload=offload,
+            vram_gb=getattr(args, "vram_gb", None),
+            vram_mode=getattr(args, "vram_mode", "auto"),
+            vram_dir=state.settings.data_dir / "cache" / "vram",
         )
     except Exception as exc:  # noqa: BLE001
         return _fail(str(exc))
@@ -804,6 +807,32 @@ def cmd_train_int4(args) -> int:
         f"loss {manifest['loss_first']} → {manifest['loss_last']}"
         + (f", peak RSS {peak:.0f} MB" if peak else "")
         + f", adapter {manifest['adapter_dir']}",
+    )
+    return 0
+
+
+def cmd_vram(args) -> int:
+    from .training.vram import budget_from_available, clear_arena
+
+    state = build_state()
+    arena = state.settings.data_dir / "cache" / "vram"
+    if args.vram_command == "clear":
+        result = clear_arena(arena)
+        _print(result, args.json, f"cleared {len(result['removed'])} file(s) in {result['arena_dir']}")
+        return 0
+    index_path = arena / "arena.json"
+    payload = {
+        "arena_dir": str(arena),
+        "arena_bytes_on_disk": (arena / "arena.bin").stat().st_size if (arena / "arena.bin").exists() else 0,
+        "auto_budget_bytes": budget_from_available(),
+        "index": json.loads(index_path.read_text("utf-8")) if index_path.exists() else None,
+    }
+    _print(
+        payload,
+        args.json,
+        f"arena {payload['arena_bytes_on_disk'] / 1024**2:.0f} MB on disk at {arena}\n"
+        f"auto budget {payload['auto_budget_bytes'] / 1024**2:.0f} MB"
+        + (f"\nlast run: {json.dumps(payload['index'].get('stats'))}" if payload["index"] else "\nno index yet"),
     )
     return 0
 
@@ -1121,6 +1150,8 @@ def build_parser() -> argparse.ArgumentParser:
     t_int4.add_argument("--streaming", action="store_true", help="quantize while loading (avoids the fp32 peak)")
     t_int4.add_argument("--offload", action="store_true", help="force the disk-backed INT4 store (memory-mapped)")
     t_int4.add_argument("--no-offload", action="store_true", help="keep the INT4 weights in RAM even if the estimate does not fit")
+    t_int4.add_argument("--vram-gb", type=float, default=None, help="hot-tier budget for the tiered weight cache (default: auto from free RAM)")
+    t_int4.add_argument("--vram-mode", default="auto", choices=["auto", "off"], help="auto budgets from live RAM; off disables the cache")
     t_int4.add_argument("--output", default=None)
     t_int4.add_argument("--json", action="store_true")
     t_int4.set_defaults(func=cmd_train_int4)
@@ -1140,6 +1171,13 @@ def build_parser() -> argparse.ArgumentParser:
     t_merge.add_argument("--shard-gb", type=float, default=1.5)
     t_merge.add_argument("--json", action="store_true")
     t_merge.set_defaults(func=cmd_train_merge_int4)
+
+    vram = sub.add_parser("vram", help="inspect or clear the virtual-RAM arena on disk")
+    vram_sub = vram.add_subparsers(dest="vram_command", required=True)
+    for name, help_text in (("status", "show the arena, the last run's cache stats and the auto budget"), ("clear", "delete the arena file (it is only a cache)")):
+        v = vram_sub.add_parser(name, help=help_text)
+        v.add_argument("--json", action="store_true")
+        v.set_defaults(func=cmd_vram)
 
     pipeline = sub.add_parser("pipeline", help="all-in-one orchestration")
     pipeline_sub = pipeline.add_subparsers(dest="pipeline_command", required=True)

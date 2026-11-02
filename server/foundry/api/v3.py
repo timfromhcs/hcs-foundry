@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -311,6 +312,8 @@ class AutoRequest(BaseModel):
     teacher: str = Field(default="local", pattern="^(local|gateway)$")
     streaming: bool = False
     offload: bool | None = None  # None = automatic when the RAM estimate does not fit
+    vram_gb: float | None = Field(default=None, ge=0, le=64)
+    vram_mode: str = Field(default="auto", pattern="^(auto|off)$")
 
 
 @router.post("/training/auto")
@@ -334,6 +337,8 @@ def training_auto(request: Request, body: AutoRequest):
                 state.db, config, job_id=ctx.job_id, output_dir=output,
                 progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event,
                 streaming=body.streaming, offload=body.offload,
+                vram_gb=body.vram_gb, vram_mode=body.vram_mode,
+                vram_dir=state.settings.data_dir / "cache" / "vram",
             )
         if body.algorithm == "dpo":
             return run_dpo(state.db, config, output_dir=output, progress=lambda pct, msg: ctx.progress(pct, msg), log=ctx.log, cancel=ctx.cancel_event)
@@ -387,6 +392,36 @@ def training_playbook(request: Request):
 
     state = _state(request)
     return {"entries": playbook.entries(state.db)}
+
+
+@router.get("/training/vram")
+def training_vram(request: Request):
+    from ..training.vram import budget_from_available
+
+    state = _state(request)
+    arena = state.settings.data_dir / "cache" / "vram"
+    index_path = arena / "arena.json"
+    arena_file = arena / "arena.bin"
+    index = None
+    if index_path.exists():
+        try:
+            index = json.loads(index_path.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            index = None
+    return {
+        "arena_dir": str(arena),
+        "arena_bytes_on_disk": arena_file.stat().st_size if arena_file.exists() else 0,
+        "auto_budget_bytes": budget_from_available(),
+        "index": index,
+    }
+
+
+@router.post("/training/vram/clear")
+def training_vram_clear(request: Request):
+    from ..training.vram import clear_arena
+
+    state = _state(request)
+    return clear_arena(state.settings.data_dir / "cache" / "vram")
 
 
 class MergeInt4Request(BaseModel):

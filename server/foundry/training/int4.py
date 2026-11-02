@@ -104,23 +104,34 @@ def int4_block_size() -> int:
     return max(1, value)
 
 
-def blocked_linear(x, packed, scales, shape, bias=None, block: int | None = None):
+def blocked_linear(x, packed, scales, shape, bias=None, block: int | None = None, cache=None, module_path: str | None = None):
     """``x @ dequant(packed)^T + bias`` one row block at a time.
 
     Dequantizing the full matrix first costs ``out_features * in_features * 4`` bytes per layer
     (94 MB for a 9216x2560 projection) and drives the allocator into multi-gigabyte peaks over a
     long run. Blocking keeps one block resident and writes straight into the output buffer.
+
+    With a ``cache`` the blocks come from the tiered store (RAM → disk arena → dequantize), and
+    the next block is prefetched while this one is multiplied.
     """
     torch, _, F = _torch()
     out_features, in_features, padded = shape
     step = block or int4_block_size()
     if step >= out_features:
+        if cache is not None and module_path:
+            weight = cache.get(module_path, 0, out_features)
+            return F.linear(x, weight.to(x.dtype), bias)
         weight = dequantize_int4(packed, scales, shape, x.dtype)
         return F.linear(x, weight, bias)
     out = None
     for start in range(0, out_features, step):
         stop = min(start + step, out_features)
-        w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), x.dtype)
+        if cache is not None and module_path:
+            w = cache.get(module_path, start, stop).to(x.dtype)
+            if stop < out_features:
+                cache.prefetch([_block_key(module_path, stop, min(stop + step, out_features))])
+        else:
+            w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), x.dtype)
         part = F.linear(x, w)
         if out is None:
             out = torch.empty(*part.shape[:-1], out_features, dtype=part.dtype, device=part.device)
@@ -131,18 +142,29 @@ def blocked_linear(x, packed, scales, shape, bias=None, block: int | None = None
     return out
 
 
-def blocked_grad_input(grad_output, packed, scales, shape, block: int | None = None):
+def _block_key(module_path: str, start: int, stop: int):
+    from .vram import BlockKey
+
+    return BlockKey(module_path, start, stop)
+
+
+def blocked_grad_input(grad_output, packed, scales, shape, block: int | None = None, cache=None, module_path: str | None = None):
     """``grad_output @ dequant(packed)`` accumulated block by block into one buffer."""
     torch, _, _ = _torch()
     out_features, in_features, padded = shape
     step = block or int4_block_size()
     if step >= out_features:
+        if cache is not None and module_path:
+            return grad_output @ cache.get(module_path, 0, out_features).to(grad_output.dtype)
         weight = dequantize_int4(packed, scales, shape, grad_output.dtype)
         return grad_output @ weight
     grad = None
     for start in range(0, out_features, step):
         stop = min(start + step, out_features)
-        w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), grad_output.dtype)
+        if cache is not None and module_path:
+            w = cache.get(module_path, start, stop).to(grad_output.dtype)
+        else:
+            w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), grad_output.dtype)
         part = grad_output[..., start:stop] @ w
         if grad is None:
             grad = part
@@ -167,16 +189,21 @@ def _int4_matmul():
 
     class _Int4Matmul(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, x, packed, scales, shape, bias, block):
+        def forward(ctx, x, packed, scales, shape, bias, block, cache, module_path):
             ctx.save_for_backward(x, packed, scales)
             ctx.shape = shape
             ctx.block = block
-            return blocked_linear(x, packed, scales, shape, bias, block)
+            ctx.cache = cache
+            ctx.module_path = module_path
+            return blocked_linear(x, packed, scales, shape, bias, block, cache=cache, module_path=module_path)
 
         @staticmethod
         def backward(ctx, grad_output):
             x, packed, scales = ctx.saved_tensors
-            return blocked_grad_input(grad_output, packed, scales, ctx.shape, ctx.block), None, None, None, None, None
+            grad = blocked_grad_input(
+                grad_output, packed, scales, ctx.shape, ctx.block, cache=ctx.cache, module_path=ctx.module_path
+            )
+            return grad, None, None, None, None, None, None, None
 
     _INT4_MATMUL = _Int4Matmul
     return _INT4_MATMUL
@@ -190,7 +217,7 @@ class Int4Linear:
     """
 
     @staticmethod
-    def from_store(packed, scales, shape, bias=None):
+    def from_store(packed, scales, shape, bias=None, cache=None, module_path: str | None = None):
         torch, nn, F = _torch()
 
         class _Int4Linear(nn.Module):
@@ -201,6 +228,8 @@ class Int4Linear:
                 self.shape = shape
                 self.in_features = int(shape[1])
                 self.out_features = int(shape[0])
+                self.cache = cache
+                self.module_path = module_path
                 if bias is not None:
                     self.register_buffer("bias", bias.detach().clone())
                 else:
@@ -209,9 +238,18 @@ class Int4Linear:
             def forward(self, x):
                 if torch.is_grad_enabled() and x.requires_grad:
                     return _int4_matmul().apply(
-                        x, self.packed, self.scales, self.shape, self.bias, int4_block_size()
+                        x,
+                        self.packed,
+                        self.scales,
+                        self.shape,
+                        self.bias,
+                        int4_block_size(),
+                        self.cache,
+                        self.module_path,
                     )
-                return blocked_linear(x, self.packed, self.scales, self.shape, self.bias)
+                return blocked_linear(
+                    x, self.packed, self.scales, self.shape, self.bias, cache=self.cache, module_path=self.module_path
+                )
 
             def extra_repr(self):
                 return f"in={self.in_features}, out={self.out_features}, int4"
@@ -531,13 +569,18 @@ def train_int4(
     streaming: bool = False,
     offload: bool | None = None,
     store_dir: str | Path | None = None,
+    vram_gb: float | None = None,
+    vram_mode: str = "auto",
+    vram_dir: str | Path | None = None,
 ) -> dict:
     """Train a LoRA adapter on INT4-packed base weights and record the measured peak RSS.
 
     ``offload=None`` picks the disk-backed INT4 store automatically when the RAM estimate
-    does not fit; ``True`` forces it, ``False`` keeps everything in RAM.
+    does not fit; ``True`` forces it, ``False`` keeps everything in RAM. ``vram_gb`` sizes the
+    tiered block cache (RAM + disk arena); ``vram_mode="off"`` disables it.
     """
     sampler = PeakRSS().start()
+    holders: dict = {}
     try:
         return _train_int4(
             db,
@@ -549,10 +592,20 @@ def train_int4(
             streaming=streaming,
             offload=offload,
             store_dir=store_dir,
+            vram_gb=vram_gb,
+            vram_mode=vram_mode,
+            vram_dir=vram_dir,
             sampler=sampler,
+            holders=holders,
         )
     finally:
         sampler.stop()
+        cache = holders.get("vram")
+        if cache is not None:
+            try:
+                cache.close()
+            except Exception:  # noqa: BLE001 - cleanup must not mask the real error
+                pass
 
 
 def _train_int4(
@@ -566,7 +619,11 @@ def _train_int4(
     streaming: bool = False,
     offload: bool | None = None,
     store_dir: str | Path | None = None,
+    vram_gb: float | None = None,
+    vram_mode: str = "auto",
+    vram_dir: str | Path | None = None,
     sampler: PeakRSS,
+    holders: dict | None = None,
 ) -> dict:
     torch, nn, _ = _torch()
     try:
@@ -611,10 +668,49 @@ def _train_int4(
             else "Loading base model (fp32 peak)",
         )
     store_meta = None
+    vram_meta = None
+    vram_cache = None
     if offload_mode:
-        from .offload import STORE_DIRNAME, load_store_model
+        from .offload import STORE_DIRNAME, Int4Store, load_store_model
+        from .vram import DEFAULT_ARENA_GB, BlockCache, resolve_budget
 
         target_store = Path(store_dir).expanduser() if store_dir else output_dir / STORE_DIRNAME
+        budget = resolve_budget(vram_gb, vram_mode)
+        arena_dir = Path(vram_dir).expanduser() if vram_dir else output_dir / "vram"
+
+        def cache_factory(store_view: Int4Store):
+            """Called once, after the store exists, so the callback can slice its mmap."""
+            nonlocal vram_cache
+            from .int4 import dequantize_int4
+
+            def _dequantize_block(module_path: str, start: int, stop: int):
+                info = store_view.meta["tensors"][module_path]
+                block_shape = (stop - start, info["in_features"], info["padded"])
+                return dequantize_int4(
+                    store_view.packed(module_path)[start:stop],
+                    store_view.scales(module_path)[start:stop],
+                    block_shape,
+                    torch.float32,
+                )
+
+            vram_cache = BlockCache(
+                dequantize=_dequantize_block,
+                budget_bytes=budget,
+                arena_dir=arena_dir,
+                arena_bytes=int(DEFAULT_ARENA_GB * 1024**3),
+                block_rows=int4_block_size(),
+                prefetch=True,
+                log=log,
+            )
+            if holders is not None:
+                holders["vram"] = vram_cache
+            if log:
+                log(
+                    f"vram: cache budget {budget / 1024**2:.0f} MB, arena "
+                    f"{vram_cache.arena_limit / 1024**3:.1f} GiB at {arena_dir}"
+                )
+            return vram_cache
+
         model, report = load_store_model(
             model_path,
             target_store,
@@ -622,7 +718,15 @@ def _train_int4(
             alpha=config.lora_alpha,
             dropout=config.lora_dropout,
             log=log,
+            cache_factory=cache_factory if budget > 0 else None,
         )
+        if vram_cache is not None:
+            vram_meta = {
+                "mode": vram_mode,
+                "budget_bytes": vram_cache.budget_bytes,
+                "arena_bytes": vram_cache.arena_limit,
+                "arena_dir": str(vram_cache.arena_dir),
+            }
         store_meta = {
             "store_dir": report["store_dir"],
             "disk_bytes": report["store_disk_bytes"],
@@ -747,6 +851,12 @@ def _train_int4(
     tokenizer.save_pretrained(str(adapter))
 
     memory = sampler.report()
+    if vram_cache is not None and vram_meta is not None:
+        vram_meta["stats"] = vram_cache.stats_public()
+        vram_meta["note"] = (
+            "Tiered weight cache: fp32 blocks stay in a bounded RAM tier, spill to a memory-mapped "
+            "arena file, and are recomputed from the INT4 store only on a miss."
+        )
     manifest = {
         "kind": "int4_lora_sft",
         "base_model": str(model_path),
@@ -766,6 +876,7 @@ def _train_int4(
         "quantization": {"scheme": "int4_groupwise_absmax", "group_size": GROUP_SIZE},
         "streaming": bool(streaming),
         "offload": store_meta,
+        "vram": vram_meta,
         "resources": resources,
         "memory": memory,
         "note": (
@@ -801,6 +912,9 @@ def create_int4_run(
     streaming: bool = False,
     offload: bool | None = None,
     store_dir: str | Path | None = None,
+    vram_gb: float | None = None,
+    vram_mode: str = "auto",
+    vram_dir: str | Path | None = None,
 ) -> dict:
     run_id = new_id("trn")
     db.insert(
@@ -829,6 +943,9 @@ def create_int4_run(
             streaming=streaming,
             offload=offload,
             store_dir=store_dir,
+            vram_gb=vram_gb,
+            vram_mode=vram_mode,
+            vram_dir=vram_dir,
         )
     except Exception as exc:
         db.execute(

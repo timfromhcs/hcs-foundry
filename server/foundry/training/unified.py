@@ -146,6 +146,9 @@ def run_unified(
                 db, config, job_id=None, output_dir=output,
                 progress=lambda pct, msg: progress(5 + pct * 0.45, msg) if progress else None,
                 log=log, cancel=cancel, streaming=True, offload=decision.get("offload"),
+                vram_gb=options.get("vram_gb"),
+                vram_mode=str(options.get("vram_mode") or "auto"),
+                vram_dir=settings.data_dir / "cache" / "vram",
             )
         else:
             train_result = run_auto(

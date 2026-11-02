@@ -349,7 +349,7 @@ def store_fingerprint(store_dir: str | Path) -> str:
     return hashlib.sha256(meta.read_bytes()).hexdigest()[:16]
 
 
-def attach_store(model, store: Int4Store, *, r: int, alpha: int, dropout: float = 0.0) -> dict:
+def attach_store(model, store: Int4Store, *, r: int, alpha: int, dropout: float = 0.0, cache=None) -> dict:
     """Load fp32 leftovers from the store and wrap target linears with INT4 + LoRA."""
     torch = _torch()
     from accelerate.utils import set_module_tensor_to_device
@@ -373,6 +373,8 @@ def attach_store(model, store: Int4Store, *, r: int, alpha: int, dropout: float 
             store.scales(module_path),
             (info["out_features"], info["in_features"], info["padded"]),
             bias=bias,
+            cache=cache,
+            module_path=module_path,
         )
         setattr(parent, attribute, LoRALinear.build(int4, r, alpha, dropout))
         converted += 1
@@ -429,13 +431,21 @@ def load_store_model(
     alpha: int = 16,
     dropout: float = 0.0,
     log: Callable[[str], None] | None = None,
+    cache=None,
+    cache_factory: Callable[[Int4Store], object] | None = None,
 ):
-    """Build the meta model, attach the store, return ``(model, report)``."""
+    """Build the meta model, attach the store, return ``(model, report)``.
+
+    ``cache_factory`` receives the opened store so a weight cache can be created with a
+    dequantize callback that already points at the built store.
+    """
     path = Path(model_path).expanduser()
     model, _config, _available = _build_meta_model(path)
     store = build_store(path, store_dir, log=log)
     loaded = Int4Store(store["store_dir"])
-    report = attach_store(model, loaded, r=r, alpha=alpha, dropout=dropout)
+    if cache_factory is not None:
+        cache = cache_factory(loaded)
+    report = attach_store(model, loaded, r=r, alpha=alpha, dropout=dropout, cache=cache)
     report["reused"] = bool(store.get("reused"))
     report["converted_layers"] = report["quantized_layers"]
     report["targets"] = list(store.get("targets") or [])

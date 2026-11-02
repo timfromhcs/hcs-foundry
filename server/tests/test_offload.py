@@ -146,6 +146,49 @@ def test_offload_training_records_store_and_memory(db, tmp_path: Path):
     assert adapter.exists()
 
 
+def test_vram_cache_gives_identical_loss_and_reports_stats(db, tmp_path: Path):
+    """The cache must be transparent: same seed, same loss, plus honest stats."""
+    import torch
+
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+
+    def run(out: Path, mode: str):
+        torch.manual_seed(42)
+        config = SFTConfig(
+            model_path=str(model_dir),
+            dataset_id=dataset_id,
+            max_steps=2,
+            max_seq_len=24,
+            grad_accum=1,
+            lora_r=2,
+            lora_alpha=4,
+            learning_rate=1e-3,
+            target_modules=["c_attn", "c_proj"],
+        )
+        return train_int4(
+            db,
+            config,
+            output_dir=out,
+            streaming=True,
+            offload=True,
+            vram_gb=0.05,
+            vram_dir=out / "vram",
+            vram_mode=mode,
+        )
+
+    cached = run(tmp_path / "cached", "auto")
+    plain = run(tmp_path / "plain", "off")
+    assert cached["loss_first"] == plain["loss_first"]
+    assert cached["loss_last"] == plain["loss_last"]
+
+    stats = cached["vram"]["stats"]
+    assert stats["lookups"] > 0
+    assert stats["dequant_calls"] >= 1
+    assert stats["arena_bytes"] > 0
+    assert plain["vram"] is None
+
+
 def test_offload_requires_streaming(db, tmp_path: Path):
     model_dir = make_tiny_model(tmp_path / "tiny")
     dataset_id = seed_dataset(db)
