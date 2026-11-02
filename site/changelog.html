@@ -49,6 +49,31 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2
 <h1>Changelog</h1>
 <p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
 <p>All notable changes to HCS Foundry.</p>
+<h2>[7.4.0] — 2026-11-02</h2>
+<p>Wear-aware and opt-in: training stops writing state nothing reads, the update check is off until the</p>
+<p>user turns it on, and the browser panel announces what it is doing.</p>
+<h3>Changed</h3>
+<ul>
+<li><strong>Weights-only checkpoints.</strong> <code>save_only_model=True</code>: optimizer/scheduler/RNG state is no longer written, because no trainer has a resume path that would read it. The tiny 11-step fixture writes <strong>53,732 bytes</strong> in total, with no <code>optimizer.pt</code>, <code>scheduler.pt</code> or <code>rng_state.pth</code> (<code>docs/DISK_LIGHT.md</code>, <code>tests/train/test_disk_light.py</code>).</li>
+<li><strong><code>save_steps</code> is floored at 10.</strong> A <code>save_every=1</code> experiment can no longer write a checkpoint per step.</li>
+<li>Each run records <code>manifest.extras[&quot;disk_bytes_written&quot;]</code>, so the write cost is measurable instead of assumed.</li>
+</ul>
+<h3>Added</h3>
+<ul>
+<li><strong>Opt-in update check</strong> (<code>GET /api/v1/update/check</code>, <code>foundry/update.py</code>). Off by default; when enabled it makes one HTTPS request to the public release feed with no identifier and reports the version plus a link. It <strong>never downloads or installs</strong> anything. Settings has the toggle and a &quot;Check now&quot; button in de/en/fr.</li>
+<li><strong>Accessibility for the browser runtime panel</strong>: <code>role=&quot;region&quot;</code> with an accessible name, <code>aria-busy</code> while loading, and load/generation status in a polite live region (WCAG 2.2 4.1.3).</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>319 backend tests (10 new), 17 frontend, 11 E2E (1 new for the update toggle, plus the region assertion), build green.</li>
+<li>The disabled update path is tested to make <strong>zero</strong> network calls; the enabled path is tested with an injected response, including the unreachable and malformed cases.</li>
+</ul>
+<h3>Not claimed</h3>
+<ul>
+<li><strong>No automatic download or install.</strong> The check reports a version; updating stays a user action.</li>
+<li><strong>No delta snapshots or 4 KiB-aligned writer</strong> — see <code>docs/DISK_LIGHT.md</code> for why they are not the win here.</li>
+<li>Still no quality claim: S5 of <code>docs/plan/V8_STABLE_PLAN.md</code> has not run.</li>
+</ul>
 <h2>[7.3.0] — 2026-11-02</h2>
 <p>Hardening release: the conformance matrix can now fail a trainer, specs are reachable over HTTP and</p>
 <p>MCP, and there is verifiable task data to train and measure on.</p>
