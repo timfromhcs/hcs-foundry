@@ -1,0 +1,12 @@
+# Versions the v8 evidence was produced with (local dev, Python 3.14.6).
+# CI installs from the lock files, which are compiled against these constraints so that a
+# resolved dependency drift cannot silently change what the tests measure.
+torch==2.12.1
+transformers==5.12.1
+peft==0.19.1
+accelerate==1.14.0
+tokenizers==0.22.2
+numpy==2.4.6
+datasets==5.0.0
+safetensors==0.8.0
+pytest==9.1.1

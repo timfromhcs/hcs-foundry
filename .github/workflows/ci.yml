@@ -19,11 +19,13 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
-          python -m pip install pytest
-      - name: Test
+          python -m pip install -r requirements-train-lock.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e . --no-deps
+      - name: Test (training tests must not be skipped)
         working-directory: server
-        run: python -m pytest -q
+        env:
+          FOUNDRY_REQUIRE_TRAIN: "1"
+        run: python -m pytest -q -rs --strict-markers
 
   frontend:
     name: Frontend build and unit tests

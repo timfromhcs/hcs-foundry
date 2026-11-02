@@ -1,8 +1,17 @@
-"""Shared pytest fixtures."""
+"""Shared pytest fixtures + the CI honesty guard.
+
+The backend suite used to be silently split in two: 164 tests that need only FastAPI, and 53
+training tests that call ``pytest.importorskip("torch")`` and therefore *disappear* on a runner
+without the training stack. "CI green" then said nothing about the trainers.
+
+``FOUNDRY_REQUIRE_TRAIN=1`` (set by CI) turns that silence into a failure: every training test
+module must actually contribute collected items.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import struct
 import sys
 from pathlib import Path
@@ -17,6 +26,36 @@ from foundry.config import Settings  # noqa: E402
 from foundry.db import init_db  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+#: Test modules that must run in CI. If one of them is skipped, the suite is lying.
+TRAINING_MODULES = {
+    "test_algorithms",
+    "test_int4",
+    "test_merge_int4",
+    "test_moe",
+    "test_offload",
+    "test_sft",
+    "test_store_prefetch",
+    "test_unified",
+    "test_vram",
+}
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "local: needs a local model, a GPU or a long run; excluded in CI")
+    config.addinivalue_line("markers", "slow: takes more than a few seconds")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if os.environ.get("FOUNDRY_REQUIRE_TRAIN") != "1":
+        return
+    collected = {item.module.__name__.rsplit(".", 1)[-1] for item in items}
+    missing = sorted(TRAINING_MODULES - collected)
+    if missing:
+        raise pytest.UsageError(
+            "FOUNDRY_REQUIRE_TRAIN=1 but these training test modules were not collected "
+            f"(missing torch/transformers/peft?): {', '.join(missing)}"
+        )
 
 
 @pytest.fixture()

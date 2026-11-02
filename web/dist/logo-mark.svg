@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="HCS Foundry">
-  <rect width="48" height="48" rx="12" fill="#0b0d10"/>
-  <path d="M13 34V14h5v7.5h12V14h5v20h-5v-7.5H18V34z" fill="#5eead4"/>
-  <circle cx="35.5" cy="12.5" r="2.5" fill="#5eead4" opacity="0.55"/>
-</svg>

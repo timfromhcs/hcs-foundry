@@ -1,4 +1,4 @@
-# Known limitations — HCS Foundry 4.1.0
+# Known limitations - HCS Foundry 7.0.0
 
 Honest list as of 2026-11-01. Anything not listed as working should be assumed
 unimplemented. Every statement here is either measured on this machine or explicitly
@@ -49,9 +49,11 @@ marked as untested.
     `--offload` has no `int4-store/`, so the adapter cannot be merged; the trainer says so
     instead of pretending. Merging also needs the original base directory for the tensors the
     store skipped (vision tower, MTP head).
-15. **Only 0.6B is proven end-to-end** through merge → GGUF → quantize. The same chain for the
-    4B vision-language checkpoint was not run: it writes ~17 GB and the installed
-    `convert_hf_to_gguf.py` support for that architecture is unverified.
+15. **0.6B, 1.7B and the 4B merge chain are proven end-to-end.** 0.6B and 1.7B go through
+    merge → GGUF → quantize → answer; the 4B adapter merges to 8.70 GiB fp16 and exports to an
+    8264 MiB F16 GGUF plus a 2655 MiB Q4_K_M that answers at 8.75 tok/s. What is **not** proven
+    for the 4B is a *training* step under memory pressure: it degenerates to disk speed
+    (378 s/step vs ~25 s in `docs/evidence/v7_4b_speed.md`).
 16. **The disk-backed INT4 store trades throughput for memory.** Weights are memory-mapped
     from `weights.u8` / `scales.f32` / `rest.f32`, so they occupy file-backed pages instead of
     anonymous RAM. The first pass reads from disk and is slower than the in-RAM path; the
@@ -81,8 +83,10 @@ marked as untested.
 
 23. **Allowlisted tools only.** No arbitrary shell. The agent cannot install packages, push,
     or touch paths outside the workspace.
-24. **No MCP auto-discovery** of third-party servers; the settings screen records declared
-    MCP servers but does not spawn them.
+24. **MCP exposes nine tools, not the whole product.** `machine_scan`, `machine_budget`,
+    `models_list`, `datasets_list`, `datasets_export`, `vram_status`, `train_int4`,
+    `train_merge_int4`, `gguf_quantize`. There is deliberately no shell tool; running a prompt
+    (`models_run`) and running a benchmark (`bench_run`) are not exposed yet (v8 plan, Phase 9).
 
 ## Deployment
 

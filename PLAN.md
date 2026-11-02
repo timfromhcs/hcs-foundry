@@ -866,8 +866,9 @@ vocabulary (`AGENTS.md` §19): *detected ≠ tested*, *trained ≠ improved*, *b
 
 | Phase | Status | Evidence | Notes |
 |---|---|---|---|
-| P0 baseline/hygiene | open | | |
-| P1 CI honesty | open | | |
+| P0 baseline/hygiene | **done** | docs/evidence/v8_baseline.md, server/requirements-*-lock.txt, web/dist untracked |
+| P1 CI honesty | **done** | CI installs 
+equirements-train-lock.txt; FOUNDRY_REQUIRE_TRAIN=1 + 	ests/conftest.py guard + 	est_ci_guard.py |
 | P2 unified contract | open | | |
 | P3 stats gate | open | | |
 | PG-1 v7.1.0 | open | | |

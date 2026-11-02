@@ -148,10 +148,13 @@ evidence file with the command that produced it. If a phase cannot be finished, 
 
 | WP | Status | Evidence |
 |---|---|---|
-| P1 4B speed | open | |
-| P2 MCP + run | open | |
-| P3 UI/UX | open | |
-| P4 branding | open | |
-| P5 docs | open | |
-| P6 Vercel | open | |
-| P7 release | open | |
+| P1 4B speed | **done (research)** | prefetch guard + adaptive block + tuning; research says I/O-bound (`docs/evidence/v7_4b_speed.md`) |
+| P2 MCP + run | **done** | 9 typed tools, `foundry run doctor`, `docs/MCP.md` |
+| P3 UI/UX | **done** | Data Studio distribution + JSONL/JSON/CSV/sample, tutorial checklist, de/en/fr |
+| P4 branding | **done** | `scripts/make_brand_assets.py` → logo, favicons, og.png; `docs/BRAND.md` |
+| P5 docs | **done** | `docs/TUTORIAL.md`, `docs/UI_GUIDE.md`, README, CHANGELOG |
+| P6 Vercel | **done** | docs section, generated changelog page, OG/Twitter/JSON-LD, robots, sitemap |
+| P7 release | **done** | tag `v7.0.0`, CI green, release + EXE, site live |
+
+**Not shipped from the plan:** MCP `models_run`/`bench_run` (carried into the v8 plan, Phase 9);
+the byte-reduction experiments for the 4B store (documented in `v7_4b_speed.md`, not implemented).
