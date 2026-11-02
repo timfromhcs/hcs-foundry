@@ -64,7 +64,8 @@ site         logo + docs section + /changelog.html + og.png + robots/sitemap + J
 
 | Item | Value |
 |---|---|
-| Tag | `v7.0.0` |
-| CI | green (backend, frontend, Playwright) |
+| Tag | `v7.0.0` → commit `b2a4c11` |
+| CI | run `41430719802` — green |
+| GitHub Release | <https://github.com/timfromhcs/hcs-foundry/releases/tag/v7.0.0> (Latest) |
+| Windows EXE | 384,124,715 bytes, built from the tagged commit |
 | Landing page | <https://hcs-foundry-site.vercel.app> · <https://hcs-foundry-site.vercel.app/changelog.html> |
-| EXE | rebuilt from the tagged commit, attached to the release |
