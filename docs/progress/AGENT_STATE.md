@@ -5,7 +5,7 @@ phase: V8-S4
 status: complete
 branch: main
 base_commit: 14723ea          # v7.4.0
-head_commit: pending           # filled by the release commit
+head_commit: f9ba8c6            # feature commit; tag v7.5.0 on the docs commit
 verified_facts:
   - "RFT is registered as rft/fp32_lora and reachable through TrainSpec, the API plan/run endpoints and the CLI"
   - "server/tests/train/test_rft.py: 6 tests, all passing"
