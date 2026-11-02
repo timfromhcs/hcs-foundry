@@ -468,7 +468,11 @@ lb.addEventListener('click',()=>lb.classList.remove('open'));
   function offline(err){
     var m=String(err&&err.message||err);
     if(/Failed to fetch|NetworkError|Load failed/i.test(m)){
-      say('<b>No local service answered.</b> Start it with <code>foundry serve</code>, then pair.','bad');
+      if(location.protocol==='https:' && /127\.0\.0\.1|localhost/.test(base)){
+        say('<b>The browser blocked the loopback request.</b> Chrome/Edge require "Local Network Access" permission before a public page may reach <code>127.0.0.1</code>, and may deny it outright. Use the local UI at <a href="http://127.0.0.1:8770">http://127.0.0.1:8770</a>, or allow local network access for this site in the browser settings.','bad');
+      }else{
+        say('<b>No local service answered.</b> Start it with <code>foundry serve</code>, then pair.','bad');
+      }
     }else if(/origin_not_allowed/i.test(m)){
       say('<b>This origin is not allowlisted.</b> Add it to <code>FOUNDRY_UI_ORIGINS</code> and restart the service.','bad');
     }else{
@@ -495,9 +499,7 @@ lb.addEventListener('click',()=>lb.classList.remove('open'));
   });
   req('/api/v1/health').then(function(){
     say('<b>Local service detected.</b> Pair to read status.');
-  }).catch(function(){
-    say('<b>No local service answered.</b> Start it with <code>foundry serve</code>, then pair.','bad');
-  });
+  }).catch(offline);
 })();
 document.addEventListener('keydown',e=>{if(e.key==='Escape')lb.classList.remove('open')});
 </script>

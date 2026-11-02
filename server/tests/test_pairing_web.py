@@ -29,6 +29,16 @@ def test_env_origins_survive_the_scheme(monkeypatch):
     assert not any(":/demo" in origin for origin in settings.ui_origins)
 
 
+def test_version_is_single_sourced():
+    """The UI and the API must report the released version, not a stale literal."""
+    import foundry
+    from foundry.config import VERSION
+
+    assert VERSION == foundry.__version__
+    parts = VERSION.split(".")
+    assert len(parts) == 3 and all(part.isdigit() for part in parts), VERSION
+
+
 def test_policy_accepts_the_deployed_site_and_nothing_else():
     policy = SecurityPolicy(origins=list(DEFAULT_UI_ORIGINS), allow_lan=False)
     assert policy.origin_allowed("https://hcs-foundry-site.vercel.app")
@@ -36,6 +46,33 @@ def test_policy_accepts_the_deployed_site_and_nothing_else():
     assert policy.origin_allowed("http://127.0.0.1:8770")
     assert not policy.origin_allowed("https://evil.example")
     assert not policy.origin_allowed("*")
+
+
+def test_preflight_advertises_private_network_access_when_asked(settings):
+    """Chrome requires this header before an https page may reach 127.0.0.1."""
+    from fastapi.testclient import TestClient
+
+    from foundry.main import create_app
+
+    settings.ui_origins = ["https://demo.example"]
+    app = create_app(settings, serve_web=False)
+    with TestClient(app, base_url="http://127.0.0.1:8770") as client:
+        asked = client.options(
+            "/api/v1/system/pair",
+            headers={
+                "Origin": "https://demo.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+        assert asked.headers.get("access-control-allow-private-network") == "true"
+        assert asked.headers.get("access-control-allow-origin") == "https://demo.example"
+
+        not_asked = client.options(
+            "/api/v1/system/pair",
+            headers={"Origin": "https://demo.example", "Access-Control-Request-Method": "POST"},
+        )
+        assert not_asked.headers.get("access-control-allow-private-network") is None
 
 
 def test_cors_echoes_the_exact_origin(settings):

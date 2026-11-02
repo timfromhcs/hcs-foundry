@@ -170,6 +170,37 @@ def _header(scope, name: str) -> str | None:
     return None
 
 
+class PrivateNetworkAccessMiddleware:
+    """Answer the Private Network Access preflight the browser sends before loopback.
+
+    Chrome blocks ``https://public.example → http://127.0.0.1`` unless the preflight carries
+    ``Access-Control-Allow-Private-Network: true``. The header does not widen the security
+    boundary: the ``Origin`` allowlist and the pairing token still decide what happens.
+    """
+
+    HEADER = b"access-control-allow-private-network"
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        wants = (_header(scope, "access-control-request-private-network") or "").lower() == "true"
+        if not wants:
+            return await self.app(scope, receive, send)
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                if not any(key.lower() == self.HEADER for key, _ in headers):
+                    headers.append((self.HEADER, b"true"))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 class SecurityMiddleware:
     """Raw ASGI middleware (keeps SSE streaming unbuffered)."""
 
@@ -195,6 +226,11 @@ class SecurityMiddleware:
             return await self._reject(scope, receive, send, 403, "origin_not_allowed", "Origin is not paired with this service.")
 
         if path in self.public_paths:
+            return await self.app(scope, receive, send)
+
+        # A browser preflight carries no token by design; it must reach CORS so the real
+        # request can be authorised. The origin is already checked above.
+        if method == "OPTIONS":
             return await self.app(scope, receive, send)
 
         token = self._extract_token(scope)

@@ -38,9 +38,12 @@ blocked dequant (4B MLP shape 9216x2560, forward+backward)
   block 1024     +28 MB transient   0.13 s
   block 256       +0 MB transient   0.12 s
 
-tests        193 backend · 7 frontend · 9 Playwright E2E (all green locally)
-site         https://hcs-foundry-site.vercel.app (200) · /#pair present · pairing section
-             shows "No local service answered" instead of a fake success
+pairing (real Chromium, loopback origin → local service)
+  "Paired. Token received for this tab only." · version 5.0.0 · no console errors
+  from the public origin Chromium blocks loopback (Local Network Access) — stated, not faked
+
+tests        195 backend · 7 frontend · 9 Playwright E2E (all green locally)
+site         https://hcs-foundry-site.vercel.app (200) · /#pair present
 ```
 
 ## What is deliberately not claimed
@@ -52,6 +55,10 @@ site         https://hcs-foundry-site.vercel.app (200) · /#pair present · pair
   measurement carries the claim; the last complete 4B run is the v4.1 one.
 - **Model quality** is unchanged and unclaimed: two optimisation steps on 53 records produce a
   valid artifact, not a better model.
+- **Browser loopback permission.** From a public HTTPS origin, Chromium refuses the request to
+  `127.0.0.1` ("Local Network Access"). The service answers the PNA preflight and the page
+  explains the block, but the permission itself is the browser's decision. The local UI
+  (`http://127.0.0.1:8770`) is unaffected.
 
 ## Reproduce
 

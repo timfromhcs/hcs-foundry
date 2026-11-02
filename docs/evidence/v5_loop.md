@@ -68,19 +68,57 @@ artifact is real: it is a normal GGUF, loaded by a normal `llama-server`, answer
 
 `site/index.html` now carries a `#pair` section that:
 
-- probes `GET /api/v1/health` on `http://127.0.0.1:8770` and reports "No local service
-  answered" when nothing runs (no fake success),
+- probes `GET /api/v1/health` on `http://127.0.0.1:8770` and reports the actual reason when
+  it fails (nothing running, origin not allowlisted, or the browser blocking loopback),
 - pairs via `POST /api/v1/system/pair`, keeping the token in the tab's memory only,
 - explains the boundary: it can read status, it cannot train or read files without a token.
 
-Server side: `FOUNDRY_UI_ORIGINS` is parsed as a URL list (it previously went through
-`Path`, which collapsed `https://`), `https://hcs-foundry-site.vercel.app` is in the default
-allowlist, CORS echoes the exact origin and never `*`, and the pairing code is still
-enforced when enabled.
+Server side:
+
+- `FOUNDRY_UI_ORIGINS` is parsed as a URL list (it previously went through `Path`, which
+  collapsed `https://`), and `https://hcs-foundry-site.vercel.app` is in the default allowlist.
+- CORS echoes the exact origin and never `*`.
+- **`OPTIONS` preflights now reach CORS**: previously the security middleware answered them
+  with 401 for authenticated paths, so a cross-origin client could never call them.
+- **Private Network Access** (`access-control-allow-private-network: true`) is returned when
+  the browser asks, which is the protocol-level requirement for public → loopback.
+- The pairing code is still enforced when enabled.
+
+### Browser verification
+
+Pairing from a page served on a loopback origin (`http://127.0.0.1:4180`) against the real
+service, real Chromium:
 
 ```
-server/tests/test_pairing_web.py  ....... 6 passed
-web/tests/e2e/pair.spec.ts        ....... 2 passed (offline state, no token in storage)
+status: "Paired. Token received for this tab only."
+facts:  visible · version "5.0.0" · model "no model loaded"
+console errors: none
+```
+
+### Measured browser limit (not a bug to hide)
+
+From the **public** origin the same click is refused by Chromium before it reaches the service:
+
+```
+Access to fetch at 'http://127.0.0.1:8770/api/v1/health' from origin
+'https://hcs-foundry-site.vercel.app' has been blocked by CORS policy:
+Permission was denied for this request to access the `loopback` address space.
+```
+
+That is Chrome's Local Network Access permission, not the service. The page therefore says
+exactly that and points to the local UI (`http://127.0.0.1:8770`). The PNA header removes the
+protocol obstacle; the permission prompt remains a browser decision the page cannot make.
+
+```text
+server/tests/test_pairing_web.py   8 passed (origins, wildcard, PNA header, pairing code, version)
+web/tests/e2e/pair.spec.ts         2 passed (offline state, no token in storage)
 ```
 
 Live: <https://hcs-foundry-site.vercel.app/#pair>
+
+## 4. Version single-sourcing (found while verifying)
+
+`foundry/config.py` had `VERSION = "4.0.0"` next to `foundry.__version__`, so the API and the
+UI reported 4.0.0 while the package said 4.1.0. `VERSION` is now derived from
+`foundry.__version__`, and `test_pairing_web.py::test_version_is_single_sourced` fails if the
+two ever drift again.

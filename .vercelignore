@@ -3,3 +3,6 @@
 *
 !site
 !site/**
+# never upload a stale prebuilt output or local Vercel state
+site/.vercel/
+site/.env.local

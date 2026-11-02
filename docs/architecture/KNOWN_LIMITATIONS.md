@@ -89,19 +89,24 @@ marked as untested.
 25. **Vercel hosts the landing page only** — a static page, no functions, no inference, no
     training. The local service binds to `127.0.0.1`; a deployed page reaches it only through
     the explicit pairing flow.
-26. **The landing page is one static file.** It has no CMS and no build step; edits are
+26. **A public page reaching loopback depends on the browser.** Chromium applies its Local
+    Network Access permission and may refuse the request outright ("Permission was denied for
+    this request to access the `loopback` address space") even though the service answers the
+    Private Network Access preflight. The page reports that instead of pretending. The local UI
+    on `http://127.0.0.1:8770` is not affected.
+27. **The landing page is one static file.** It has no CMS and no build step; edits are
     committed and redeployed.
-27. **Deployment credentials** are environment-specific; if absent, the release stops before
+28. **Deployment credentials** are environment-specific; if absent, the release stops before
     deployment and says so.
 
 ## Packaging
 
-28. **The executable excludes the ML stack.** Fine-tuning requires the source install; the
+29. **The executable excludes the ML stack.** Fine-tuning requires the source install; the
     EXE reports `requires_stack` instead of failing silently.
-29. **The standalone build is Windows-only** in this release. The same PyInstaller spec can
+30. **The standalone build is Windows-only** in this release. The same PyInstaller spec can
     be adapted for Linux/macOS but was not tested.
 
 ## Language
 
-30. **de/en/fr are complete for all shipped UI strings.** Additional locales are
+31. **de/en/fr are complete for all shipped UI strings.** Additional locales are
     architecture-ready but not translated.

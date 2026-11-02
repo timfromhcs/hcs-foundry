@@ -18,7 +18,7 @@ from .db import init_db
 from .events import EventBus
 from .jobs import JobRunner
 from .runtime.llama_server import LlamaServer
-from .security import PairingStore, SecurityMiddleware, SecurityPolicy
+from .security import PairingStore, PrivateNetworkAccessMiddleware, SecurityMiddleware, SecurityPolicy
 from .state import AppState
 
 log = logging.getLogger("foundry")
@@ -104,6 +104,8 @@ def create_app(settings: Settings | None = None, *, serve_web: bool = True) -> F
         store=pairing,
         policy=SecurityPolicy(origins=settings.ui_origins, allow_lan=settings.allow_lan),
     )
+    # outermost: adds the Private Network Access header to the CORS preflight response
+    app.add_middleware(PrivateNetworkAccessMiddleware)
 
     app.include_router(api_router)
 

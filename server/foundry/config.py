@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 APP_NAME = "HCS Foundry"
-VERSION = "4.0.0"
+from . import __version__ as _package_version
+
+#: Single source of truth: ``foundry.__version__``. A second literal here drifted before.
+VERSION = _package_version
 SCHEMA_VERSION = 1
 API_PREFIX = "/api/v1"
 

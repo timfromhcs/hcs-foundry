@@ -29,6 +29,14 @@ leaves the machine as a normal GGUF, and the deployed page can talk to the local
 
 ### Fixed
 
+- **`VERSION` was hardcoded to 4.0.0** in `config.py`, so the API and UI reported the wrong
+  version; it now derives from `foundry.__version__` (with a test that fails on drift).
+- **Cross-origin preflights were rejected with 401** for authenticated paths, so a paired
+  foreign page could never call the API; `OPTIONS` now reaches CORS after the origin check.
+- **Private Network Access**: the service answers the browser's preflight with
+  `Access-Control-Allow-Private-Network: true`. Chromium still applies its own Local Network
+  Access permission for public → loopback, and the page now says exactly that.
+- The deployment uploaded a stale `site/.vercel/output`; `.vercelignore` excludes it now.
 - A `dl[hidden]` element was still visible because an inline `display: grid` overrode it.
 - `vercel.json` no longer relies on `cleanUrls` for the second page (the rewrite 404'd).
 
@@ -37,7 +45,10 @@ leaves the machine as a normal GGUF, and the deployed page can talk to the local
 - 0.6B end-to-end: INT4 offload training (loss 5.4147 → 4.3085) → merge (196 layers + LoRA,
   1.41 GiB fp16, 29.8 s) → GGUF F16 (1439 MiB) → Q4_K_M (462 MiB, 13.8 s) → **loads and
   answers at 117 tok/s** (`docs/evidence/v5_loop.md`).
-- 193 backend tests, 7 frontend tests, 9 Playwright E2E tests, CI green.
+- 195 backend tests, 7 frontend tests, 9 Playwright E2E tests, CI green.
+- Pairing verified in real Chromium from a loopback origin: "Paired. Token received for this
+  tab only.", version 5.0.0, no console errors. From the public origin Chromium blocks the
+  loopback request (Local Network Access); the page states that instead of faking success.
 - Landing page: HTTP 200, `/#pair` present, offline state asserted in Playwright.
 
 ### Still open
