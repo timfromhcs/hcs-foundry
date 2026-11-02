@@ -80,8 +80,14 @@ The 1.25 GB WASM ceiling is derived from that 1536 MiB measurement, not guessed.
 
 | Item | Value |
 |---|---|
-| Tag | `v7.2.0` |
-| Commit | `e0faf3d` |
-| CI | run `41446876386` |
+| Tag | `v7.2.0` → `20bcb6e` |
+| Commit | `20bcb6e` (code `4be25fd`) |
+| CI | run `41448332378` — Backend, Frontend, E2E all green |
+| EXE | `dist-exe/HCSFoundry.exe`, 373 MB (391,127,660 bytes) |
+| EXE sha256 | `5EE269F712746F0C75E572A04E8C98F694025FCFD19128A86BD6A126B81D7240` |
+| EXE smoke test | version `7.2.0`, SPA served, `/api/v1/browser/runtime` reports the honest empty state, `/api/v1/machine/profile` returns `scanned: false` |
 | Landing page | <https://hcs-foundry-site.vercel.app> |
-| EXE | rebuilt from the tagged commit |
+
+Note: the EXE grew from the SPA's ONNX Runtime WebAssembly payload
+(`ort-wasm-simd-threaded.asyncify-*.wasm`, ~26 MB uncompressed) plus the launcher; the main JS
+bundle stayed at ~480 KB because Transformers.js is imported lazily.
