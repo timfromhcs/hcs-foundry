@@ -18,6 +18,9 @@ export function Settings() {
   const [reserve, setReserve] = useState(15)
   const [headroom, setHeadroom] = useState(1)
   const [concurrent, setConcurrent] = useState(false)
+  const [updateCheck, setUpdateCheck] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [updateResult, setUpdateResult] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -28,6 +31,7 @@ export function Settings() {
     setReserve(Math.round(Number(effective.os_reserve_ratio ?? 0.15) * 100))
     setHeadroom(Math.round(Number(effective.gpu_headroom_bytes ?? 1073741824) / 1024 ** 3))
     setConcurrent(Boolean(effective.allow_concurrent_heavy_jobs))
+    setUpdateCheck(Boolean(effective.update_check))
   }, [settings.data])
 
   return (
@@ -64,6 +68,40 @@ export function Settings() {
                 description={t('machine.concurrent_hint')}
               />
               <Toggle checked={false} onChange={() => notify('warn', t('settings.telemetry_note'))} label={t('settings.telemetry')} description={t('settings.telemetry_note')} disabled />
+              <Toggle
+                checked={updateCheck}
+                onChange={setUpdateCheck}
+                label={t('settings.update_check')}
+                description={t('settings.update_check_note')}
+              />
+              <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                <Button
+                  icon="download"
+                  loading={checking}
+                  disabled={!updateCheck}
+                  onClick={async () => {
+                    setChecking(true)
+                    setUpdateResult('')
+                    try {
+                      const result = await api.updateCheck()
+                      setUpdateResult(
+                        result.available
+                          ? t('settings.update_available', { latest: result.latest ?? '' })
+                          : t('settings.update_current'),
+                      )
+                    } catch (error) {
+                      setUpdateResult(error instanceof Error ? error.message : String(error))
+                    } finally {
+                      setChecking(false)
+                    }
+                  }}
+                >
+                  {t('settings.update_now')}
+                </Button>
+                <span role="status" aria-live="polite" className="tiny muted">
+                  {updateResult}
+                </span>
+              </div>
               <Button
                 variant="primary"
                 loading={saving}
@@ -76,6 +114,7 @@ export function Settings() {
                       os_reserve_ratio: reserve / 100,
                       gpu_headroom_bytes: headroom * 1024 ** 3,
                       allow_concurrent_heavy_jobs: concurrent,
+                      update_check: updateCheck,
                     })
                     settings.reload()
                     notify('ok', t('settings.saved'))

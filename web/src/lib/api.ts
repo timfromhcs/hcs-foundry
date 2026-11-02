@@ -152,6 +152,18 @@ class ApiClient {
     return this.request<{ effective: Record<string, unknown>; overrides: Record<string, unknown> }>('/settings')
   }
 
+  updateCheck() {
+    return this.request<{
+      enabled: boolean
+      status: string
+      current: string
+      latest: string | null
+      available: boolean
+      url: string | null
+      message: string
+    }>('/update/check')
+  }
+
   updateSettings(patch: Record<string, unknown>) {
     return this.request<{ effective: Record<string, unknown>; overrides: Record<string, unknown> }>('/settings', {
       method: 'PUT',

@@ -44,5 +44,24 @@ test('browser runtime panel reports real capabilities and refuses without a mode
   await expect(panel.getByRole('button', { name: /Load in browser/i })).toHaveCount(0)
   await expect(panel.getByText(/no CDN|no upload/i)).toBeVisible()
 
+  // Accessibility: the panel is a named region, so a screen reader can jump to it.
+  await expect(panel.getByRole('region', { name: /Browser runtime/i })).toBeVisible()
+
   expect(consoleErrors, consoleErrors.join('\n')).toEqual([])
+})
+
+test('the update check is off by default and cannot run until enabled', async ({ page }) => {
+  await authenticate(page)
+  await page.goto('/settings')
+
+  const toggle = page.getByLabel(/Check for updates/i)
+  await expect(toggle).toBeVisible()
+  await expect(toggle).not.toBeChecked()
+
+  const button = page.getByRole('button', { name: /Check now/i })
+  await expect(button).toBeDisabled()
+
+  // Turning it on enables the manual check; nothing is downloaded by the page.
+  await toggle.check()
+  await expect(button).toBeEnabled()
 })

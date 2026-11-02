@@ -448,8 +448,11 @@ def train_sft(
         max_steps=config.max_steps,
         learning_rate=config.learning_rate,
         logging_steps=1,
-        save_steps=max(1, config.save_every),
+        save_steps=max(10, config.save_every),
         save_total_limit=2,
+        # No trainer has a resume path yet, so optimizer/scheduler/RNG state is never read back.
+        # Writing it costs SSD endurance for nothing; save the adapter weights only.
+        save_only_model=True,
         report_to=[],
         use_cpu=not torch.cuda.is_available(),
         dataloader_num_workers=0,

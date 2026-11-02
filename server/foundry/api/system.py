@@ -106,6 +106,7 @@ class SettingsPatch(BaseModel):
     gpu_headroom_bytes: int | None = Field(default=None, ge=0)
     allow_concurrent_heavy_jobs: bool | None = None
     telemetry: bool | None = None
+    update_check: bool | None = None
     llama_server_candidates: list[str] | None = None
 
 
@@ -127,6 +128,28 @@ def update_settings(request: Request, body: SettingsPatch):
     state.db.set_setting("settings", merged)
     state.activity("settings.update", "Settings updated", updates)
     return get_settings(request)
+
+
+@router.get("/update/check")
+def update_check(request: Request):
+    """Opt-in version check. Disabled by default; never downloads or installs anything."""
+    from .. import __version__
+    from ..update import check_for_update
+
+    state = _state(request)
+    if not state.settings.update_check:
+        return {
+            "enabled": False,
+            "status": "disabled",
+            "current": __version__,
+            "latest": None,
+            "available": False,
+            "url": None,
+            "message": "Update checks are off. Enable them in Settings to check.",
+        }
+    payload = check_for_update(__version__)
+    payload["enabled"] = True
+    return payload
 
 
 @router.get("/activity")

@@ -2,6 +2,45 @@
 
 All notable changes to HCS Foundry.
 
+## [7.4.0] — 2026-11-02
+
+Wear-aware and opt-in: training stops writing state nothing reads, the update check is off until the
+user turns it on, and the browser panel announces what it is doing.
+
+### Changed
+
+- **Weights-only checkpoints.** `save_only_model=True`: optimizer/scheduler/RNG state is no longer
+  written, because no trainer has a resume path that would read it. The tiny 11-step fixture writes
+  **53,732 bytes** in total, with no `optimizer.pt`, `scheduler.pt` or `rng_state.pth`
+  (`docs/DISK_LIGHT.md`, `tests/train/test_disk_light.py`).
+- **`save_steps` is floored at 10.** A `save_every=1` experiment can no longer write a checkpoint
+  per step.
+- Each run records `manifest.extras["disk_bytes_written"]`, so the write cost is measurable instead
+  of assumed.
+
+### Added
+
+- **Opt-in update check** (`GET /api/v1/update/check`, `foundry/update.py`). Off by default; when
+  enabled it makes one HTTPS request to the public release feed with no identifier and reports the
+  version plus a link. It **never downloads or installs** anything. Settings has the toggle and a
+  "Check now" button in de/en/fr.
+- **Accessibility for the browser runtime panel**: `role="region"` with an accessible name,
+  `aria-busy` while loading, and load/generation status in a polite live region (WCAG 2.2 4.1.3).
+
+### Verified
+
+- 319 backend tests (10 new), 17 frontend, 11 E2E (1 new for the update toggle, plus the region
+  assertion), build green.
+- The disabled update path is tested to make **zero** network calls; the enabled path is tested with
+  an injected response, including the unreachable and malformed cases.
+
+### Not claimed
+
+- **No automatic download or install.** The check reports a version; updating stays a user action.
+- **No delta snapshots or 4 KiB-aligned writer** — see `docs/DISK_LIGHT.md` for why they are not the
+  win here.
+- Still no quality claim: S5 of `docs/plan/V8_STABLE_PLAN.md` has not run.
+
 ## [7.3.0] — 2026-11-02
 
 Hardening release: the conformance matrix can now fail a trainer, specs are reachable over HTTP and

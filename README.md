@@ -12,7 +12,7 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-7.3.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-7.4.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
@@ -82,6 +82,8 @@ Three rules drive the code:
 | **Upgrade Lab** | Failure taxonomy → candidate → re-eval → holdout guard → human gate → rollback | ✅ |
 | **Agent** | Visible plans, typed allowlisted tools, approval queue, bounded repair | ✅ |
 | **MCP server** | 11 typed tools over stdio for any agent client; path allowlist, no shell | ✅ |
+| **Disk-light training** | weights-only checkpoints, a 10-step save floor (no optimizer state), `disk_bytes_written` per run | ✅ 53 KB measured on the tiny fixture |
+| **Update check** | opt-in only, one ID-less request, reports the version and a link, never downloads | ✅ |
 | **Browser runtime** | WebGPU/WASM inference in the tab via Transformers.js, served from the local service (no CDN), capability detection and measured safe limits | ⚠️ detection verified, throughput unmeasured |
 | **UI** | React 18, dark/light, de/en/fr, command palette, mobile nav, reduced motion | ✅ |
 

@@ -113,6 +113,8 @@ class Settings:
     port: int = 8770
     allow_lan: bool = False
     telemetry: bool = False
+    # Opt-in only: the app is local-first and makes no outbound call by default.
+    update_check: bool = False
     log_level: str = "INFO"
 
     # Resource governor knobs (see machine/governor.py)
@@ -169,6 +171,7 @@ class Settings:
             "port": self.port,
             "allow_lan": self.allow_lan,
             "telemetry": self.telemetry,
+            "update_check": self.update_check,
             "os_reserve_ratio": self.os_reserve_ratio,
             "os_reserve_min_bytes": self.os_reserve_min_bytes,
             "gpu_headroom_bytes": self.gpu_headroom_bytes,
@@ -221,6 +224,8 @@ def apply_overrides(settings: Settings, overrides: dict | None) -> Settings:
         settings.gpu_headroom_bytes = max(0, int(overrides["gpu_headroom_bytes"]))
     if isinstance(overrides.get("allow_concurrent_heavy_jobs"), bool):
         settings.allow_concurrent_heavy_jobs = overrides["allow_concurrent_heavy_jobs"]
+    if isinstance(overrides.get("update_check"), bool):
+        settings.update_check = overrides["update_check"]
     if isinstance(overrides.get("llama_server_candidates"), list):
         settings.llama_server_candidates = [
             Path(p).expanduser() for p in overrides["llama_server_candidates"] if isinstance(p, str) and p.strip()

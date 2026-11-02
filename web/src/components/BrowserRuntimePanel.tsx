@@ -131,6 +131,7 @@ export function BrowserRuntimePanel() {
           ) : null
         }
       />
+      <div role="region" aria-label={t('browser.title')} aria-busy={busy}>
       {state.error ? (
         <div style={{ marginBottom: 10 }}>
           <Alert tone="warn">{state.error}</Alert>
@@ -203,7 +204,11 @@ export function BrowserRuntimePanel() {
                   {t('browser.too_big', { size: formatBytes(model?.size_bytes ?? 0), limit: formatBytes(limits.maxModelBytes) })}
                 </Alert>
               ) : null}
-              {stage ? <div className="tiny muted">{stage}</div> : null}
+              {stage ? (
+                <div role="status" aria-live="polite" className="tiny muted">
+                  {stage}
+                </div>
+              ) : null}
 
               {engine ? (
                 <div className="stack" style={{ gap: 8 }}>
@@ -223,7 +228,11 @@ export function BrowserRuntimePanel() {
                         {t('common.cancel')}
                       </Button>
                     ) : null}
-                    {metrics ? <span className="tiny mono">{metrics}</span> : null}
+                    {metrics ? (
+                      <span role="status" aria-live="polite" className="tiny mono">
+                        {metrics}
+                      </span>
+                    ) : null}
                   </div>
                   <pre
                     aria-live="polite"
@@ -239,6 +248,7 @@ export function BrowserRuntimePanel() {
           <div className="tiny muted">{t('browser.honest')}</div>
         </div>
       )}
+      </div>
     </Card>
   )
 }

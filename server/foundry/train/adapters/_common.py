@@ -118,6 +118,20 @@ def _adapter_delta(adapter_dir: Path | None) -> float | None:
     return None
 
 
+def _bytes_written(root: Path) -> int:
+    """Everything this run put on disk (adapter + checkpoints + tokenizer)."""
+    if not root.is_dir():
+        return 0
+    total = 0
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
 def finish(
     spec: TrainSpec,
     ctx: TrainContext,
@@ -135,6 +149,7 @@ def finish(
     manifest.adapter_dir = str(adapter_dir) if adapter_dir else None
     manifest.param_delta_max = _adapter_delta(adapter_dir)
     manifest.grads_finite = all(value == value and abs(value) != float("inf") for value in manifest.losses) if manifest.losses else None
+    manifest.extras["disk_bytes_written"] = _bytes_written(ctx.out_dir)
     return RunResult(
         run_id=run_id,
         manifest=manifest,
