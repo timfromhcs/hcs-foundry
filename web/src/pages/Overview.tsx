@@ -40,10 +40,14 @@ export function Overview() {
   const model = status?.model as Record<string, unknown> | null | undefined
   const gpu = profile?.gpu?.devices?.[0]
   const ramUsed = profile ? (profile.memory.total_bytes ?? 0) - (profile.memory.available_bytes ?? 0) : 0
+  const datasets = useAsync(() => api.datasets(), [])
+  const trainingRuns = useAsync(() => api.trainingRuns(), [])
   const checklist = [
     { done: Boolean(profile), label: t('overview.step_scan'), to: '/machine' },
     { done: Boolean(profile?.runtimes?.llama_server?.candidates?.length), label: t('overview.step_models'), to: '/models' },
     { done: Boolean(model), label: t('overview.step_load'), to: '/models' },
+    { done: Boolean((datasets.data?.datasets ?? []).length), label: t('overview.step_data'), to: '/data' },
+    { done: Boolean((trainingRuns.data?.runs ?? []).length), label: t('overview.step_train'), to: '/training' },
     { done: false, label: t('overview.step_play'), to: '/playground' },
   ]
 
@@ -246,6 +250,12 @@ export function Overview() {
                 </Link>
               ))}
             </div>
+            <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+              {t('overview.tutorial_hint')}{' '}
+              <a href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/TUTORIAL.md" target="_blank" rel="noopener noreferrer">
+                {t('overview.tutorial_link')}
+              </a>
+            </p>
           </Card>
 
           <Card>

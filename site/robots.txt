@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://hcs-foundry-site.vercel.app/sitemap.xml

@@ -354,8 +354,12 @@ class ApiClient {
     )
   }
 
-  exportDatasetUrl(datasetId: string) {
-    return this.raw(`/datasets/${datasetId}/export`)
+  exportDatasetUrl(datasetId: string, options?: { format?: 'jsonl' | 'json' | 'csv'; limit?: number }) {
+    const params = new URLSearchParams()
+    if (options?.format) params.set('format', options.format)
+    if (options?.limit) params.set('limit', String(options.limit))
+    const query = params.toString()
+    return this.raw(`/datasets/${datasetId}/export${query ? `?${query}` : ''}`)
   }
 
   deleteDataset(datasetId: string) {

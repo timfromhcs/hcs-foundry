@@ -395,6 +395,21 @@ function DatasetDetail({
   const redactions = dataset.stats?.redactions ?? {}
   const totalRedactions = Object.values(redactions).reduce((sum, value) => sum + Number(value), 0)
 
+  async function downloadDataset(id: string, format: 'jsonl' | 'json' | 'csv', limit: number) {
+    try {
+      const { blob, filename } = await api.exportDatasetUrl(id, { format, limit })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename ?? `${id}.${format}`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      notify('ok', t('data.export_done', { format: format.toUpperCase() }))
+    } catch (error) {
+      notify('danger', error instanceof Error ? error.message : String(error))
+    }
+  }
+
   return (
     <>
       <Card>
@@ -415,6 +430,49 @@ function DatasetDetail({
               {t(`data.split_${split}`)}: {count}
             </Badge>
           ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title={t('data.distribution')} icon="chart" subtitle={t('data.distribution_hint')} />
+        <div className="stack" style={{ gap: 10 }}>
+          {(
+            [
+              [t('data.by_task'), dataset.stats?.by_task ?? {}],
+              [t('data.by_language'), dataset.stats?.by_language ?? {}],
+              [t('data.by_split'), splits],
+            ] as Array<[string, Record<string, number>]>
+          ).map(([label, values]) => {
+            const entries = Object.entries(values).filter(([, count]) => Number(count) > 0)
+            const max = entries.reduce((peak, [, count]) => Math.max(peak, Number(count)), 0) || 1
+            return (
+              <div key={label}>
+                <div className="tiny muted" style={{ marginBottom: 4 }}>{label}</div>
+                {entries.length === 0 ? (
+                  <span className="small dim">{t('common.none')}</span>
+                ) : (
+                  entries.map(([key, count]) => (
+                    <div key={key} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <span className="tiny mono" style={{ width: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{key || '—'}</span>
+                      <div
+                        aria-hidden="true"
+                        style={{ flex: 1, height: 8, borderRadius: 999, background: 'var(--surface-3, #1b2229)', overflow: 'hidden' }}
+                      >
+                        <div style={{ width: `${Math.round((Number(count) / max) * 100)}%`, height: '100%', background: 'var(--accent)' }} />
+                      </div>
+                      <span className="tiny" style={{ width: 48, textAlign: 'right' }}>{count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )
+          })}
+          <div className="tiny muted">
+            {t('data.lengths', {
+              median: dataset.stats?.median_length_chars ?? 0,
+              max: dataset.stats?.max_length_chars ?? 0,
+            })}
+          </div>
         </div>
       </Card>
 
@@ -521,22 +579,17 @@ function DatasetDetail({
           <Button
             icon="download"
             disabled={dataset.rights_status !== 'confirmed'}
-            onClick={async () => {
-              try {
-                const { blob, filename } = await api.exportDatasetUrl(dataset.id)
-                const url = URL.createObjectURL(blob)
-                const anchor = document.createElement('a')
-                anchor.href = url
-                anchor.download = filename ?? `${dataset.id}.jsonl`
-                anchor.click()
-                URL.revokeObjectURL(url)
-              } catch (error) {
-                notify('danger', error instanceof Error ? error.message : String(error))
-              }
-            }}
+            onClick={() => void downloadDataset(dataset.id, 'jsonl', 0)}
           >
             {t('data.export')}
           </Button>
+          <div className="row" role="group" aria-label={t('data.export_formats')}>
+            <Button size="sm" variant="ghost" onClick={() => void downloadDataset(dataset.id, 'json', 0)}>JSON</Button>
+            <Button size="sm" variant="ghost" onClick={() => void downloadDataset(dataset.id, 'csv', 0)}>CSV</Button>
+            <Button size="sm" variant="ghost" onClick={() => void downloadDataset(dataset.id, 'jsonl', 20)}>
+              {t('data.export_sample')}
+            </Button>
+          </div>
           <Button variant="danger" icon="trash" onClick={async () => {
             if (!window.confirm(t('data.delete_confirm'))) return
             try {

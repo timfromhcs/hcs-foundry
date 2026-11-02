@@ -228,19 +228,71 @@ def annotations(request: Request, dataset_id: str):
 
 
 @router.get("/datasets/{dataset_id}/export")
-def export(request: Request, dataset_id: str, include_synthetic: bool = True):
+def export(
+    request: Request,
+    dataset_id: str,
+    include_synthetic: bool = True,
+    format: str = Query(default="jsonl", pattern="^(jsonl|json|csv)$"),
+    limit: int = Query(default=0, ge=0, le=100000),
+):
+    """Export a dataset as JSONL (training), JSON (inspection) or CSV (spreadsheets).
+
+    ``limit`` > 0 produces a sample without touching the full export.
+    """
+    import csv
+    import io
+    import json as json_module
+
     state = _state(request)
     try:
-        text = export_jsonl(state.db, dataset_id, include_synthetic=include_synthetic)
+        records = export_records(state.db, dataset_id, include_synthetic=include_synthetic)
     except KeyError:
         raise HTTPException(status_code=404, detail={"code": "not_found", "message": "Dataset not found."})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"code": "cannot_export", "message": str(exc)})
-    state.activity("dataset.export", "Dataset exported as JSONL", {"dataset_id": dataset_id})
+    sampled = limit > 0
+    if sampled:
+        records = records[:limit]
+    state.activity(
+        "dataset.export",
+        f"Dataset exported as {format.upper()}" + (f" (sample {len(records)})" if sampled else ""),
+        {"dataset_id": dataset_id, "format": format, "records": len(records)},
+    )
+    suffix = "-sample" if sampled else ""
+    if format == "json":
+        body = json_module.dumps(records, indent=2, ensure_ascii=False)
+        return PlainTextResponse(
+            body,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{dataset_id}{suffix}.json"'},
+        )
+    if format == "csv":
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["record_id", "split", "task_type", "language", "user_request", "assistant_actions", "synthetic", "origin"])
+        for record in records:
+            task = record.get("task") or {}
+            teaching = record.get("teaching") or {}
+            writer.writerow([
+                record.get("record_id") or record.get("id") or "",
+                record.get("split") or "",
+                task.get("task_type") or "",
+                task.get("language") or record.get("language") or "",
+                (task.get("user_request") or "").replace("\n", " ")[:2000],
+                " | ".join(str(step.get("kind")) for step in (record.get("trace") or []) if isinstance(step, dict)),
+                "true" if teaching.get("synthetic") or record.get("synthetic") else "false",
+                (record.get("source") or {}).get("provider") or teaching.get("annotation_origin") or "",
+            ])
+        return PlainTextResponse(
+            buffer.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{dataset_id}{suffix}.csv"'},
+        )
+    body = "\n".join(json_module.dumps(record, ensure_ascii=False) for record in records)
     return PlainTextResponse(
-        text,
+        body,
         media_type="application/x-ndjson",
-        headers={"Content-Disposition": f'attachment; filename="{dataset_id}.jsonl"'},
+        headers={"Content-Disposition": f'attachment; filename="{dataset_id}{suffix}.jsonl"'},
     )
 
 

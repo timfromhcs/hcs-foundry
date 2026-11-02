@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HCS Foundry — changelog</title>
+<meta name="description" content="Every HCS Foundry release with what shipped, what broke and what was deliberately not done." />
+<link rel="canonical" href="https://hcs-foundry-site.vercel.app/changelog.html" />
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" />
+<meta property="og:title" content="HCS Foundry — changelog" />
+<meta property="og:description" content="Every release, with the numbers behind it and the gaps that remain." />
+<meta property="og:image" content="https://hcs-foundry-site.vercel.app/assets/og.png" />
+<meta name="theme-color" content="#0a0c0f" />
+<style>
+:root{--bg:#080a0d;--surface:#0f1318;--border:#222a34;--text:#e9eff6;--text-2:#a5b3c2;--accent:#5eead4;
+  --font:"Inter","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 var(--font)}
+.wrap{width:min(880px,calc(100% - 40px));margin:0 auto}
+header{border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(8,10,13,.86);backdrop-filter:blur(12px)}
+nav{display:flex;align-items:center;gap:14px;height:64px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:700}
+.brand img{width:28px;height:28px;border-radius:8px}
+nav .spacer{margin-left:auto}
+main{padding:40px 0 72px}
+h1{font-size:clamp(26px,4vw,38px);letter-spacing:-.02em;margin:0 0 6px}
+h2{font-size:20px;margin:36px 0 8px;padding-top:16px;border-top:1px solid var(--border)}
+h3{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-2);margin:22px 0 6px}
+ul{margin:6px 0 12px;padding-left:20px}
+li{margin:5px 0;color:var(--text-2)}
+li strong{color:var(--text)}
+code{font-family:var(--mono);font-size:13px;background:#0d1116;border:1px solid var(--border);border-radius:6px;padding:1px 5px}
+p{color:var(--text-2)}
+.lead{color:var(--text-2);margin:0 0 24px}
+footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2);font-size:14px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><nav>
+  <a class="brand" href="/"><img src="assets/logo-mark.svg" alt="" /> HCS Foundry</a>
+  <span class="spacer"></span>
+  <a href="/">Home</a><a href="/#docs">Docs</a>
+  <a href="https://github.com/timfromhcs/hcs-foundry">GitHub</a>
+</nav></div></header>
+<main><div class="wrap">
+<h1>Changelog</h1>
+<p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
+<p>All notable changes to HCS Foundry.</p>
+<h2>[6.0.0] — 2026-11-02</h2>
+<p>Two asks: make the 2–4B class usable locally, and add &quot;virtual RAM on HDD with smart use&quot;.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>Tiered weight cache</strong> (<code>foundry/training/vram.py</code>): hot RAM LRU with a hard byte budget, a memory-mapped arena file on disk (<code>data/cache/vram/arena.bin</code>, grown lazily in 64 MB steps), and the INT4 store as the cold tier. <code>Int4Linear</code> and its backward pass go through it, so a block can be reused across passes. Knobs: <code>--vram-gb</code>, <code>--vram-mode auto|off</code>, <code>FOUNDRY_VRAM_PREFETCH</code>, <code>FOUNDRY_INT4_BLOCK</code>. CLI <code>foundry vram status|clear</code>, API <code>GET /training/vram</code> + <code>POST /training/vram/clear</code>, <code>vram.stats</code> in every manifest.</li>
+<li><strong><code>train int4 --store &lt;dir&gt;</code></strong> reuses an existing store instead of rebuilding it.</li>
+<li><strong>2B class proven end to end</strong>: Qwen3-1.7B → INT4 training (loss 5.023 → 4.081, peak RSS 4496 MB) → merge (3 shards, 3.80 GiB) → GGUF F16 (3881 MiB) → Q4_K_M (1223 MiB) → answers &quot;Hallo Welt&quot; at 51.4 tok/s (<code>docs/evidence/v6_2b.md</code>).</li>
+<li><strong>4B artifact proven</strong>: the v4.1 4B adapter (200 layers) merges into 8.70 GiB of fp16 shards in 514 s (<code>docs/evidence/v6_4b.md</code>).</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>The cache is <strong>off by default</strong>. Measured on Qwen3-0.6B, same store, 2 steps: 20.7 s without, 117.1 s with a 3 GB RAM tier, 63.5 s with arena + prefetch. Keeping fp32 blocks resident pushes the mapped INT4 store out of the page cache, so a hit costs a store re-read. Numbers in <code>docs/evidence/v6_vram.md</code>; the knob stays for machines where a miss is more expensive than a memcpy.</li>
+<li>Prefetching is opt-in (<code>FOUNDRY_VRAM_PREFETCH=1</code>); prefetching the immediately-next block duplicates work.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>A 6 GB <code>truncate</code> for the arena cost 47 s per run on NTFS; the file now grows on demand (0.10 s).</li>
+<li><code>budget_bytes=0</code> meant &quot;unlimited&quot; instead of &quot;cache disabled&quot;.</li>
+<li>The prefetch hit counter never incremented.</li>
+</ul>
+<h3>Not claimed</h3>
+<ul>
+<li><strong>4B training was not re-run today.</strong> Two attempts stalled in page faults while the host sat at ~3.6 GB free / 89 % commit (other agent processes); no step completed, so no number is reported. The last complete 4B training run remains the v4.1 one.</li>
+<li><strong>4B GGUF export</strong> depends on <code>convert_hf_to_gguf.py</code> support for the Qwen3.5-VL architecture; the result is recorded in <code>docs/evidence/v6_4b.md</code> either way.</li>
+<li>Activation checkpointing was planned and cancelled with a measurement (4B activations at seq 128 are ~84 MB against a multi-GB private peak).</li>
+</ul>
+<h2>[5.0.0] — 2026-11-02</h2>
+<p>Turns the proven mechanisms into one usable path: a model that was trained with INT4 now</p>
+<p>leaves the machine as a normal GGUF, and the deployed page can talk to the local service.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>INT4 adapter → merged checkpoint</strong> (<code>foundry/training/merge_int4.py</code>): <code>W = dequantize_int4(packed, scales) + (B @ A) * (alpha/r)</code> streamed into ≤1.5 GB fp16 shards with an index, plus config/tokenizer. Non-target tensors (vision tower, MTP head) are taken from the original checkpoint, so the result is a complete HF directory. CLI <code>train merge-int4</code>, API <code>POST /training/merge-int4</code>, pipeline stage <code>merge_int4</code>.</li>
+<li><strong>The unified trainer now finishes the chain for INT4</strong>: train → merge → export GGUF → quantize, instead of skipping merge with &quot;cannot be merged&quot;.</li>
+<li><strong>Memory-bounded INT4 matmul</strong>: <code>blocked_linear</code> / <code>blocked_grad_input</code> dequantize one row block at a time (default 256 rows, <code>FOUNDRY_INT4_BLOCK</code>) and write into the output buffer. Isolated measurement on the 4B MLP shape: transient 279 MB → 0 MB, no slowdown.</li>
+<li><strong>Pairing section on the landing page</strong> (<code>/#pair</code>): probes the local service, pairs with a token kept in memory, explains the boundary, and reports &quot;no local service answered&quot; instead of pretending.</li>
+<li><strong><code>FOUNDRY_UI_ORIGINS</code></strong> now parses URLs correctly (it went through <code>Path</code>, which collapsed <code>https://</code>); the deployed site origin is in the default allowlist.</li>
+<li><strong>Training Lab</strong>: runs table shows the load mode (<code>fp32</code> / <code>streaming</code> / <code>disk offload</code>), the measured peak memory, and a &quot;Merge → GGUF&quot; action for completed INT4 runs (de/en/fr).</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><strong><code>VERSION</code> was hardcoded to 4.0.0</strong> in <code>config.py</code>, so the API and UI reported the wrong version; it now derives from <code>foundry.__version__</code> (with a test that fails on drift).</li>
+<li><strong>Cross-origin preflights were rejected with 401</strong> for authenticated paths, so a paired foreign page could never call the API; <code>OPTIONS</code> now reaches CORS after the origin check.</li>
+<li><strong>Private Network Access</strong>: the service answers the browser&#x27;s preflight with <code>Access-Control-Allow-Private-Network: true</code>. Chromium still applies its own Local Network Access permission for public → loopback, and the page now says exactly that.</li>
+<li>The deployment uploaded a stale <code>site/.vercel/output</code>; <code>.vercelignore</code> excludes it now.</li>
+<li>A <code>dl[hidden]</code> element was still visible because an inline <code>display: grid</code> overrode it.</li>
+<li><code>vercel.json</code> no longer relies on <code>cleanUrls</code> for the second page (the rewrite 404&#x27;d).</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>0.6B end-to-end: INT4 offload training (loss 5.4147 → 4.3085) → merge (196 layers + LoRA, 1.41 GiB fp16, 29.8 s) → GGUF F16 (1439 MiB) → Q4_K_M (462 MiB, 13.8 s) → **loads and answers at 117 tok/s** (<code>docs/evidence/v5_loop.md</code>).</li>
+<li>195 backend tests, 7 frontend tests, 9 Playwright E2E tests, CI green.</li>
+<li>Pairing verified in real Chromium from a loopback origin: &quot;Paired. Token received for this tab only.&quot;, version 5.0.0, no console errors. From the public origin Chromium blocks the loopback request (Local Network Access); the page states that instead of faking success.</li>
+<li>Landing page: HTTP 200, <code>/#pair</code> present, offline state asserted in Playwright.</li>
+</ul>
+<h3>Still open</h3>
+<ul>
+<li><strong>4B end-to-end export</strong> was not completed: the 4B merge/GGUF chain needs ~17 GB of disk writes and the converter&#x27;s Qwen3.5 support is unverified; only 0.6B is proven.</li>
+<li>Official SWE-bench assets, Vulkan training, GGUF→HF conversion remain open.</li>
+</ul>
+<h2>[4.1.0] — 2026-11-01</h2>
+<p>Closes the gaps the v4.0 release left open. No new product surface.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>Disk-backed INT4 store</strong> (<code>foundry/training/offload.py</code>): the quantized model is written once to <code>weights.u8</code> + <code>scales.f32</code> + <code>rest.f32</code> and loaded with <code>mmap</code>, so the weights are file-backed pages instead of anonymous RAM and the OS page cache becomes the RAM buffer. <code>train int4 --offload/--no-offload</code>, <code>POST /training/auto {offload}</code>, and <code>train unified</code> picks it automatically when fp32 and in-RAM INT4 both do not fit.</li>
+<li><strong>Measured memory in every INT4 manifest</strong>: <code>memory.peak_rss_mb</code>, <code>start_rss_mb</code>, <code>min_available_mb</code> (psutil sampler in <code>foundry/training/memory.py</code>) next to the estimate.</li>
+<li><strong>Checkpoint key normalisation</strong>: <code>model.language_model.*</code> is mapped onto the text-only module tree, unresolved subtrees (vision tower, MTP head) are skipped *and reported*, and the meta-device check still fails the load when a needed weight is missing.</li>
+<li><strong>Hybrid-architecture LoRA targets</strong>: <code>in_proj_qkv</code>, <code>in_proj_z</code>, <code>out_proj</code> are part of the default INT4 targets, so Qwen3-Next/Qwen3.5-style linear-attention layers are quantized instead of staying fp32.</li>
+<li><strong>Stable landing site</strong>: Vercel project <code>hcs-foundry-site</code>, production URL &lt;https://hcs-foundry-site.vercel.app&gt;, <code>.vercelignore</code> limited to <code>site/</code>.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>INT4 manifests claimed &quot;loading still needs the fp32 peak&quot; even for streaming runs.</li>
+<li>The INT4 memory estimate assumed 1.2 GiB of fp32 leftovers, which is wrong for models with a 248k vocabulary and a vision tower; it now derives the embedding size from the config.</li>
+<li>A store built with a different target set could be silently reused (identity now includes the requested targets).</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>178 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.</li>
+<li>4B checkpoint (<code>Qwen3.8-4B-Distill</code>, 8.7 GB safetensors, 18.0 GiB in fp32) trained through the disk-backed store on a machine with ~6 GiB available RAM — numbers in <code>docs/evidence/v41_int4_4b.md</code>.</li>
+<li>Landing page: HTTP 200, assets 200, security headers, <code>&lt;title&gt;HCS Foundry — local AI model lab&lt;/title&gt;</code>.</li>
+</ul>
+<h3>Still open</h3>
+<ul>
+<li><strong>Official SWE-bench</strong>: dataset and checkouts are not bundled (<code>not_run</code> with reason).</li>
+<li><strong>Vulkan training</strong>: still no PyTorch Vulkan backend; Vulkan stays an inference path.</li>
+<li><strong>Quality at 4B</strong>: the pipeline is proven, the model quality is not.</li>
+</ul>
+<h2>[4.0.0] — 2026-11-01</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>Streaming INT4 loader</strong>: builds the model on <code>meta</code>, streams safetensors shards, quantizes target linears immediately, and refuses if any tensor is left on <code>meta</code>. <code>train int4 --streaming</code> and <code>POST /training/auto {algorithm:&quot;int4&quot;, streaming:true}</code>.</li>
+<li><strong>Unified auto trainer</strong> (<code>training/unified.py</code>): decides SFT vs streaming INT4 from model size, free RAM and the playbook, then runs train → merge → export GGUF → quantize and writes a report.</li>
+<li><strong>Full chat-log cleanup</strong> (<code>data/cleanup.py</code>): discover → import all → redact → dedupe → quality filter → rights → freeze → quarantine copy → report. Originals are never modified; excluded records are marked, not deleted.</li>
+<li><strong>Repo-fix benchmark</strong>: the model repairs a buggy file and the tests run in a per-case venv.</li>
+<li><strong>Agentic benchmark</strong>: multi-step file tasks answered as JSON, applied in a sandbox, one task executed in a venv.</li>
+<li><strong>SWE-bench adapter</strong>: official JSONL shape, per-instance repo copy + venv, command allowlist, and honest <code>not_run</code> when assets are missing.</li>
+<li><strong>Vulkan profile reuse</strong>: <code>tune apply</code>, <code>/tune/profile/{model_id}</code>, and the tuned profile recorded in benchmark metadata.</li>
+<li>CLI <code>logs clean</code>, <code>train unified</code>, <code>tune apply</code>, <code>bench repo_fix|agentic</code>; API <code>/sources/clean</code>, <code>/training/unified</code>, <code>/tune/profile</code>; Pipeline page buttons for &quot;Clean all logs&quot; and &quot;Full local train&quot;.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Streaming INT4 computed <code>in_features</code> from the parent module instead of the linear, producing shape mismatches on Qwen-style models.</li>
+<li>CLI crash after the v4 command additions (indentation).</li>
+<li>Redaction now covers <code>vck_</code> gateway keys.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>165 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.</li>
+<li>Cleanup: 79 records imported, 75 included, 4 excluded, frozen with hash and a quarantine copy; originals untouched.</li>
+<li>Streaming INT4 on 0.6B: 196 layers, loss 5.72 → 4.89.</li>
+<li>Repo-fix and agentic benchmarks pass on a deterministic fake server; SWE-bench instance passes in a venv.</li>
+</ul>
+<h3>Blocked / pending</h3>
+<ul>
+<li><strong>4B streaming INT4 run</strong>: the 9.32 GB safetensors download did not finish in this session, so no 4B training claim is made.</li>
+<li><strong>Official SWE-bench</strong>: dataset and checkouts are not bundled.</li>
+<li><strong>Vulkan training</strong>: still no PyTorch Vulkan backend.</li>
+</ul>
+<h2>[3.0.0] — 2026-11-01</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>GGUF export</strong> from safetensors via the discovered <code>convert_hf_to_gguf.py</code>, with disk precheck, streaming log capture and cancellation.</li>
+<li><strong>Quantization</strong> wrapper around <code>llama-quantize</code> for F16/BF16/Q8_0/Q6_K/Q5_K_M/Q4_K_M/ Q4_K_S/Q3_K_M/Q2_K, with size/ratio recording.</li>
+<li><strong>GGUF upcast</strong> to F16/BF16, explicitly labelled as requantization because no GGUF→HF converter exists in the toolchain.</li>
+<li><strong>MoEfication</strong>: dense FFN → N experts with a top-k router, architecture-aware, forward-pass verified, with a memory projection that refuses impossible conversions.</li>
+<li><strong>INT4 (QLoRA-style) training</strong> without bitsandbytes: group-wise absmax packing, <code>Int4Linear</code>, LoRA adapters in fp32, custom adapter artifact and manifest.</li>
+<li><strong>Training algorithms</strong>: SFT, DPO with synthetic pairs (adapter-disabled reference), and distillation from a local or gateway teacher.</li>
+<li><strong>OpenEval</strong> during training, best-checkpoint saving, <strong>auto-decision</strong> (LR reduction, early stop) and a <strong>training playbook</strong> that records measured recipes and seeds the next automatic run.</li>
+<li><strong>Vulkan auto-tuning</strong> sweep over GPU layers and batch size, stored per model.</li>
+<li><strong>Local log discovery/import</strong> for Claude Code, Codex (including zstd sessions), Antigravity transcripts and OpenCode (via <code>session export --sanitize</code>), with a guarantee that originals are never modified.</li>
+<li><strong>All-in-one pipeline</strong> with ordered, resumable stages and a JSON + Markdown report.</li>
+<li><strong>Pipeline page</strong> and <code>gguf</code>, <code>moe</code>, <code>tune</code>, <code>logs</code>, <code>pipeline</code>, <code>train int4/auto/dpo/distill</code> CLI commands; new <code>/gguf</code>, <code>/moe</code>, <code>/tune</code>, <code>/sources</code>, <code>/pipeline</code> API routes.</li>
+<li><code>docs/plan/V3_PLAN.md</code>, <code>docs/evidence/v3_*.md</code>.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Reasoning-only models returned an empty CLI answer; <code>complete()</code> now returns <code>reasoning</code> separately and the CLI prints it with a hint.</li>
+<li><code>vercel_key</code> (<code>vck_…</code>) added to the redaction patterns.</li>
+<li>Codex <code>.jsonl.zst</code> sessions are decompressed into the import area instead of being silently skipped.</li>
+<li>Windows <code>.CMD</code> shims are executed through <code>cmd /c</code> for OpenCode imports.</li>
+<li>Antigravity transcripts get a dedicated parser that ignores private <code>thinking</code> fields.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>149 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.</li>
+<li>0.6B GGUF export + Q4_K_M quantization + inference (113 tok/s).</li>
+<li>Vulkan sweep: 51.4 → 107.8 tok/s (2.1×).</li>
+<li>Auto SFT on 72 imported records: eval 4.344 → 4.233, playbook entry recorded.</li>
+<li>INT4 SFT: 196 layers quantized, loss 5.72 → 4.86, adapter saved.</li>
+<li>4B Q4_K_M loads and answers on Vulkan at context 512.</li>
+</ul>
+<h3>Blocked (documented, not faked)</h3>
+<ul>
+<li>Complete 4B/8B fine-tune on this machine (fp32 load peak ≈ 17.4 GB vs ~5.6 GB free).</li>
+<li>Vulkan-accelerated training (no PyTorch Vulkan backend).</li>
+<li>GGUF → HF safetensors conversion (no converter in the discovered toolchain).</li>
+<li>4B MoE with four experts (projected memory exceeds RAM).</li>
+</ul>
+<h2>[2.0.0] — 2026-11-01</h2>
+<h3>Added</h3>
+<ul>
+<li><strong>Hugging Face Hub client</strong>: search, file listing with sizes and LFS digests, resumable downloads, atomic rename, SHA-256 verification, disk precheck, cancellation, and a token store that is masked in every response. Public repos work anonymously.</li>
+<li><strong>Model Hub page</strong>: live search, task/sort filters, file picker with suggested GGUF + projector selection, download queue and progress.</li>
+<li><strong>Standalone executable</strong>: PyInstaller one-file build (50.8 MB) that bundles the API and the SPA, picks a free port, stores data in <code>%LOCALAPPDATA%</code>, and opens the browser.</li>
+<li><strong>CLI v2</strong>: <code>hf search|files|pull|token</code>, <code>models list|scan|verify|load|unload|run</code>, <code>bench</code>, <code>train smoke|preflight|sft</code>, <code>datasets list</code>, all with <code>--json</code> and real exit codes. UTF-8 output on Windows.</li>
+<li><strong>Real LoRA/SFT backend</strong>: transformers + PEFT, architecture-aware target modules, tokenisation from frozen datasets, live loss events, checkpoints, cooperative cancellation, manifest with model and dataset hashes. Verified on Qwen3-0.6B.</li>
+<li><strong>Training recipes</strong> with explicit projections and a warning for 3B on CPU.</li>
+<li><strong>Command palette</strong> (Ctrl/Cmd+K) and <strong>mobile bottom navigation</strong>.</li>
+<li><strong>Opt-in Vercel AI Gateway teacher</strong> for annotations, disabled by default, with the billing error surfaced verbatim.</li>
+<li><code>docs/HUB.md</code>, <code>docs/CLI.md</code>, <code>docs/STANDALONE.md</code>, <code>docs/plan/V2_PLAN.md</code>.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Settings were lost after a restart; persisted overrides now load at startup.</li>
+<li><code>runtime_profiles</code> returned 500 when the same model/context was loaded twice.</li>
+<li>Duplicate completion toasts.</li>
+<li>Benchmark cases lost their <code>case_id</code> before persistence.</li>
+<li>64-bit SimHash overflowed SQLite&#x27;s signed INTEGER.</li>
+<li>HF downloads duplicated bytes when a server ignored a <code>Range</code> request.</li>
+<li>Windows console crashed on unicode CLI output.</li>
+<li><code>transformers</code>/<code>peft</code> were unimportable with <code>huggingface-hub 2.0</code>; pinned <code>&lt;2</code>.</li>
+<li>Playwright suite detection used the wrong repository root.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li><code>foundry.training</code> is now a package (<code>training/</code>) with <code>sft.py</code> and <code>recipes.py</code>.</li>
+<li>Version bumped to 2.0.0 across backend, CLI, frontend and lockfile.</li>
+<li><code>.gitignore</code> root-anchors artifact directories so source packages cannot be hidden.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>121 backend tests, 7 frontend unit tests, 7 Playwright E2E tests.</li>
+<li>Real anonymous 1.5 GB Hub pull.</li>
+<li>Real LoRA run: loss 6.0436 → 5.0145, adapter saved.</li>
+<li>EXE health and UI 200 from a clean data directory.</li>
+<li>Upgrade candidate correctly rejected by the regression gate.</li>
+</ul>
+<h3>Blocked (documented, not faked)</h3>
+<ul>
+<li><code>vercel ai-gateway setup</code>: the supplied credential is an AI Gateway key, not a platform token; gateway inference additionally requires a billing method.</li>
+<li>A good 3B fine-tune on this hardware: no CUDA/ROCm, projected 15–38 h for a short run.</li>
+<li>GGUF export of a trained adapter.</li>
+</ul>
+<h2>[0.1.0] — 2026-11-01</h2>
+<p>First working local release.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>Machine scan</strong> with independent probes for OS, CPU, memory, GPU, Vulkan/CUDA/ROCm/DirectML/NPU, disks, toolchains and runtimes. UMA devices report <strong>zero dedicated VRAM</strong>.</li>
+<li><strong>Resource governor</strong> with OS reserve, GPU headroom, safe budget, fit ranges and downshift suggestions.</li>
+<li><strong>GGUF library</strong>: safe header parser, metadata, parameter count, KV bytes/token, hashing, fit estimates.</li>
+<li><strong>Inference</strong>: supervised <code>llama-server</code>, runtime discovery, per-launch API key, health checks, streaming SSE, cancellation, metrics, orphan reaping.</li>
+<li><strong>Data Studio</strong>: five adapters, consent gate, redacted preview, redaction, exact + near-duplicate removal, group-based splits, review, freeze with holdout hash, JSONL export.</li>
+<li><strong>Teaching enrichment</strong>: evidence-grounded decision summaries, negative examples, synthetic provenance, validator that rejects invented quotes.</li>
+<li><strong>Identity Maker</strong>: one prompt → editable card (facts vs proposals) → approval → synthetic dataset → deterministic identity evaluation.</li>
+<li><strong>Training Lab</strong>: importability-aware environment detection, real smoke optimisation with parameter-delta assertion, preflight with blockers and presets.</li>
+<li><strong>Benchmarks</strong>: instruction adherence, executed codegen, latency measurement, comparison, JSON/CSV/Markdown export.</li>
+<li><strong>Upgrade Lab</strong>: failure taxonomy, prompt-patch candidates, re-evaluation, holdout guard, regression gate, human approval, rollback, lineage.</li>
+<li><strong>Agent workspace</strong>: deterministic planner, allowlisted typed tools, approval queue, bounded retry, timeline.</li>
+<li><strong>Runs &amp; Reports</strong>: every job with events, output, errors and cancellation.</li>
+<li><strong>UI</strong>: React 18 + TypeScript, dark/light, responsive (360 → 1920), keyboard accessible, reduced motion, complete German/English/French translations.</li>
+<li><strong>Security</strong>: loopback binding, hashed pairing tokens, Origin/Host validation, CSRF header, JSON-only mutations, path allowlist.</li>
+<li><strong>Tests</strong>: 98 backend tests, 7 frontend unit tests, 6 Playwright end-to-end tests.</li>
+</ul>
+<h3>Verified on the test machine</h3>
+<ul>
+<li>Windows 11 Pro, Ryzen 7 7735HS, Radeon 680M (unified memory), 19.8 GiB visible RAM.</li>
+<li>Vulkan inference through <code>llama-server</code> build 11064: 163 tok/s prompt, 46 tok/s generation on a 2B Q4_K_M model.</li>
+<li>CPU smoke optimisation: loss 2.1940 → 0.0303, parameters changed.</li>
+<li>Upgrade candidate correctly <strong>rejected</strong>: −33 % score with a critical secrecy regression.</li>
+</ul>
+<h3>Known limitations</h3>
+<p>See [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/KNOWN_LIMITATIONS.md). Highlights: no GPU training on this hardware, no TurboQuant, no official benchmark suites, no GGUF export, subprocess sandbox is not a VM.</p></div></main>
+<footer><div class="wrap">Local-first · MIT · timfromhcs &amp; hcsmedia ·
+<a href="https://github.com/timfromhcs/hcs-foundry/blob/main/CHANGELOG.md">source</a></div></footer>
+</body></html>

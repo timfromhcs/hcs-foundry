@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 64" role="img" aria-label="HCS Foundry">
+  <rect width="320" height="64" rx="14" fill="#0b0d10"/>
+  <rect x="8" y="8" width="48" height="48" rx="12" fill="#0f2a2a"/>
+  <path d="M21 42V22h5v7h12v-7h5v20h-5v-7H26v7z" fill="#5eead4"/>
+  <text x="70" y="33" font-family="Segoe UI, Inter, sans-serif" font-size="21" font-weight="700" fill="#e8edf3">HCS Foundry</text>
+  <text x="70" y="49" font-family="Segoe UI, Inter, sans-serif" font-size="11.5" letter-spacing="0.6" fill="#98a3b0">LOCAL AI MODEL LAB</text>
+</svg>

@@ -12,7 +12,7 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-6.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-7.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
@@ -31,10 +31,12 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 - [Why this exists](#why-this-exists)
 - [What it does](#what-it-does)
+- [Learn it](#learn-it)
 - [Screenshots](#screenshots)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [CLI](#cli)
+- [MCP: let an agent drive it](#mcp-let-an-agent-drive-it)
 - [Training](#training)
 - [Benchmarks](#benchmarks)
 - [Architecture](#architecture)
@@ -78,7 +80,31 @@ Three rules drive the code:
 | **Benchmarks** | Instruction, executed codegen, repo-fix, agentic, SWE-bench-format adapter (venv per case) | ✅ |
 | **Upgrade Lab** | Failure taxonomy → candidate → re-eval → holdout guard → human gate → rollback | ✅ |
 | **Agent** | Visible plans, typed allowlisted tools, approval queue, bounded repair | ✅ |
+| **MCP server** | 9 typed tools over stdio for any agent client; path allowlist, no shell | ✅ |
 | **UI** | React 18, dark/light, de/en/fr, command palette, mobile nav, reduced motion | ✅ |
+
+## Learn it
+
+| Start here | What you get |
+|---|---|
+| [docs/TUTORIAL.md](docs/TUTORIAL.md) | Five copy-paste walkthroughs with expected output (first run, 0.6B/1.7B/4B training, adapter → GGUF → answer, data in/out, benchmarks) |
+| [docs/UI_GUIDE.md](docs/UI_GUIDE.md) | What every screen answers, the keyboard model, and the honest states you will see |
+| [docs/MCP.md](docs/MCP.md) | Drive the lab from an agent: nine typed tools, JSON-RPC over stdio, no shell tool |
+| [docs/CLI.md](docs/CLI.md) | Every command group, flag and exit code |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Service, jobs, storage, training stack, security boundary |
+| [CHANGELOG.md](CHANGELOG.md) | What shipped in each release — including what did not work and why |
+
+`foundry run doctor` prints the state of the machine, the budget, the runtime, the stores and the
+data in one screen, and tells you what to do next. It is the fastest way to find out where you are.
+
+```text
+machine   AMD Ryzen 7 7735HS … · 19.8 GiB RAM · AMD Radeon(TM) Graphics
+budget    2.7 GiB safe · 35 models (0 verified)
+runtime   llama-server: yes
+storage   5 INT4 store(s), 11.48 GiB · vram arena 64 MiB
+data      5 datasets (4 frozen)
+next      no model has answered yet: `foundry models verify <id>`
+```
 
 ## Screenshots
 
@@ -156,23 +182,38 @@ foundry hf token set --token hf_xxx
 
 ## CLI
 
-Fourteen command groups, `--json` where it matters, non-zero exit codes.
+Sixteen command groups, `--json` where it matters, non-zero exit codes.
 
 ```text
 foundry serve | scan | info | token
+foundry run      doctor
+foundry mcp      serve
 foundry hf       search | files | pull | token
 foundry models   list | scan | verify | load | unload | run
 foundry bench    instruction_adherence | codegen_exec | latency_throughput | repo_fix | agentic
-foundry train    smoke | preflight | sft | auto | int4 | dpo | distill | unified
+foundry train    smoke | preflight | sft | auto | int4 | dpo | distill | unified | merge-int4
 foundry gguf     export | quantize | dequantize | inspect
 foundry moe      build
 foundry tune     vulkan | apply
 foundry logs     scan | import | clean
+foundry vram     status | clear
 foundry pipeline run
 foundry datasets list
 ```
 
 See [docs/CLI.md](docs/CLI.md) for every flag.
+
+## MCP: let an agent drive it
+
+```bash
+foundry mcp serve            # JSON-RPC over stdio
+HCSFoundry.exe --mcp         # same, from the standalone build
+```
+
+Nine typed tools — `machine_scan`, `machine_budget`, `models_list`, `datasets_list`,
+`datasets_export`, `vram_status`, `train_int4`, `train_merge_int4`, `gguf_quantize` — with paths
+validated against the configured roots and **no shell tool**. A client config and the safety
+model are in [docs/MCP.md](docs/MCP.md).
 
 ## Training
 

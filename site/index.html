@@ -4,13 +4,37 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>HCS Foundry — local AI model lab</title>
-<meta name="description" content="HCS Foundry is a local-first AI model lab: pull GGUF models, run Vulkan inference, clean agent logs, fine-tune LoRA/INT4, export and quantize GGUF, benchmark coding and agentic tasks." />
+<meta name="description" content="HCS Foundry is a local-first AI model lab: pull GGUF models, run Vulkan inference, clean agent logs, fine-tune LoRA/INT4, export and quantize GGUF, benchmark coding and agentic tasks — and drive it all from the CLI or an MCP server." />
+<link rel="canonical" href="https://hcs-foundry-site.vercel.app/" />
 <meta property="og:title" content="HCS Foundry — local AI model lab" />
-<meta property="og:description" content="Local-first model lab: Hub, Vulkan inference, LoRA/INT4 training, GGUF export and quantization, coding and agentic benchmarks." />
+<meta property="og:description" content="Local-first model lab: Hub, Vulkan inference, LoRA/INT4 training, GGUF export and quantization, coding and agentic benchmarks, MCP server." />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="assets/hub.png" />
+<meta property="og:url" content="https://hcs-foundry-site.vercel.app/" />
+<meta property="og:image" content="https://hcs-foundry-site.vercel.app/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="HCS Foundry" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="HCS Foundry — local AI model lab" />
+<meta name="twitter:description" content="Train, merge, quantize and run models on your own machine. No cloud, no telemetry." />
+<meta name="twitter:image" content="https://hcs-foundry-site.vercel.app/assets/og.png" />
 <meta name="theme-color" content="#0a0c0f" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d10'/%3E%3Cpath d='M9 22V10h3v5h8v-5h3v12h-3v-5h-8v5z' fill='%235eead4'/%3E%3C/svg%3E" />
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "HCS Foundry",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, Linux, macOS",
+  "description": "Local-first AI model lab: model hub, Vulkan inference, INT4/LoRA training, GGUF export, benchmarks and an MCP server.",
+  "url": "https://hcs-foundry-site.vercel.app/",
+  "downloadUrl": "https://github.com/timfromhcs/hcs-foundry/releases/latest/download/HCSFoundry.exe",
+  "license": "https://github.com/timfromhcs/hcs-foundry/blob/main/LICENSE",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+}
+</script>
 <style>
 :root{
   --bg:#080a0d;--surface:#0f1318;--surface-2:#151b22;--border:#222a34;--border-2:#303b48;
@@ -161,13 +185,14 @@ footer .row{gap:20px}
 <body>
 <header>
   <div class="wrap nav">
-    <a class="brand" href="#top"><span class="mark">H</span> HCS Foundry</a>
+    <a class="brand" href="#top"><img src="assets/logo-mark.svg" alt="" width="32" height="32" style="border-radius:9px" /> HCS Foundry</a>
     <nav class="nav-links">
       <a href="#features">Features</a>
       <a href="#pipeline">Pipeline</a>
       <a href="#benchmarks">Benchmarks</a>
       <a href="#training">Training</a>
       <a href="#quickstart">Quick start</a>
+      <a href="#docs">Docs</a>
       <a href="#limits">Limits</a>
       <a href="#pair">Pair</a>
     </nav>
@@ -181,7 +206,7 @@ footer .row{gap:20px}
 
 <main id="top">
   <div class="wrap hero">
-    <span class="eyebrow">● v6.0.0 · local-first · MIT</span>
+    <span class="eyebrow">● v7.0.0 · local-first · MIT</span>
     <h1 style="margin-top:22px">Your local AI model lab.<br><span style="color:var(--accent)">Built to learn, tested to improve.</span></h1>
     <p class="lead">Pull GGUF models from Hugging Face, run them on Vulkan, clean your own agent logs, fine-tune LoRA or INT4, export and quantize GGUF, convert dense models to MoE, and benchmark coding and agentic tasks — all on one machine.</p>
     <div class="cta">
@@ -358,6 +383,35 @@ foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M</pre></div>
         <div class="card reveal"><h3>No GGUF → HF conversion</h3><p>Only GGUF→F16 requantization is available; the toolchain has no GGUF→safetensors converter.</p></div>
       </div>
       <div class="callout reveal" style="margin-top:18px"><div><b>Roadmap.</b> GGUF→HF conversion, official SWE-bench assets with isolation, a verified Vulkan/ROCm training backend when the frameworks support it, and a paired web demo for the local service.</div></div>
+    </div>
+  </section>
+
+  <section id="docs" style="padding-top:20px">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Documentation and tutorials</h2>
+        <p>Everything is in the repository, versioned with the code. No account, no docs portal that drifts.</p>
+      </div>
+      <div class="grid g3">
+        <a class="card reveal" href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/TUTORIAL.md" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <h3>Tutorial</h3><p>Five copy-paste walkthroughs: first run, 0.6B/1.7B/4B training, adapter → GGUF → answer, data in/out, benchmarks.</p>
+        </a>
+        <a class="card reveal" href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/MCP.md" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <h3>MCP server</h3><p><code>foundry mcp serve</code> exposes nine typed tools to any agent. Path allowlist, no shell tool, JSON-RPC over stdio.</p>
+        </a>
+        <a class="card reveal" href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/UI_GUIDE.md" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <h3>UI guide</h3><p>What every screen answers, the keyboard model, and the honest states you will see instead of fake numbers.</p>
+        </a>
+        <a class="card reveal" href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/CLI.md" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <h3>CLI reference</h3><p>Every command group with flags and exit codes: <code>hf</code>, <code>models</code>, <code>train</code>, <code>gguf</code>, <code>bench</code>, <code>logs</code>, <code>vram</code>, <code>run</code>, <code>mcp</code>.</p>
+        </a>
+        <a class="card reveal" href="https://github.com/timfromhcs/hcs-foundry/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <h3>Architecture</h3><p>Service, jobs, storage, the training stack and the security boundary between browser, loopback API and model processes.</p>
+        </a>
+        <a class="card reveal" href="/changelog.html" style="text-decoration:none;color:inherit">
+          <h3>Changelog</h3><p>What shipped in each release, including what did not work and why.</p>
+        </a>
+      </div>
     </div>
   </section>
 
