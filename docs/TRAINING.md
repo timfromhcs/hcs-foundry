@@ -181,3 +181,29 @@ foundry train int4 --dataset ds_xxx --model <path> --steps 2 --seq 128 --streami
 
 The measured 4B run is in [`docs/evidence/v41_int4_4b.md`](evidence/v41_int4_4b.md).
 
+## Turning an INT4 adapter into a runnable model (v5)
+
+An INT4 adapter is not a PEFT directory, so it cannot be handed to `llama.cpp` directly.
+`foundry train merge-int4` rebuilds the weights the forward pass actually used:
+
+```text
+W_merged = dequantize_int4(packed, scales) + (lora_B @ lora_A) * (alpha / r)
+```
+
+- one layer at a time, streamed into fp16 shards (≤ 1.5 GB) plus `model.safetensors.index.json`
+- non-target tensors (vision tower, MTP head, embeddings) are copied from the original
+  checkpoint, so the output is a complete HF directory
+- `config.json` is written with `dtype: float16`, tokenizer files are copied
+- the store fingerprint and target set must match the adapter, otherwise it refuses
+
+```bash
+foundry train int4 --dataset ds_xxx --model <hf dir> --steps 2 --streaming --offload
+foundry train merge-int4 --adapter data/training-runs/<run> --out data/training-runs/<run>/merged
+foundry gguf export data/training-runs/<run>/merged --out data/gguf/model-f16.gguf
+foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M --out data/gguf/model-Q4_K_M.gguf
+```
+
+`train unified` runs that chain itself for INT4 runs; the Training Lab shows a
+"Merge → GGUF" action per completed INT4 run and the runs table lists the load mode and the
+measured peak memory. The 0.6B proof is in [`docs/evidence/v5_loop.md`](evidence/v5_loop.md).
+

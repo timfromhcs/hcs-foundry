@@ -171,9 +171,69 @@ def run_unified(
         return _finish(db, settings, run_id, started, decision, stages, artifacts)
 
     if algorithm == "int4":
-        record("merge", "skipped", {"reason": "INT4 adapters are a custom artifact and cannot be merged into fp32 weights"})
-        record("export", "skipped", {"reason": "no merged fp32 directory"})
-        record("quantize", "skipped", {"reason": "no GGUF produced"})
+        store_dir = (manifest.get("offload") or {}).get("store_dir")
+        if not store_dir or options.get("merge") is False:
+            record(
+                "merge",
+                "skipped",
+                {
+                    "reason": (
+                        "INT4 adapter is a custom artifact; rerun with the disk-backed store (--offload) "
+                        "to merge it into a plain checkpoint"
+                        if not store_dir
+                        else "merge disabled by options"
+                    )
+                },
+            )
+            record("export", "skipped", {"reason": "no merged fp32 directory"})
+            record("quantize", "skipped", {"reason": "no GGUF produced"})
+            return _finish(db, settings, run_id, started, decision, stages, artifacts)
+
+        if progress:
+            progress(55, "merging INT4 adapter into fp16 weights")
+        try:
+            from .merge_int4 import merge_int4_adapter
+
+            merged = merge_int4_adapter(
+                store_dir,
+                manifest["adapter_dir"],
+                output / "merged",
+                log=log,
+                progress=(lambda pct, msg: progress(55 + pct * 0.13, msg)) if progress else None,
+                cancel=cancel,
+            )
+            artifacts["merged_dir"] = merged["output"]
+            record("merge", "ok", {
+                "shards": len(merged["shards"]),
+                "size_bytes": merged["size_bytes"],
+                "quantized_weights_merged": merged["quantized_weights_merged"],
+                "dtype": merged["dtype"],
+                "duration_seconds": merged["duration_seconds"],
+            })
+        except Exception as exc:  # noqa: BLE001
+            record("merge", "failed", {"error": str(exc)[:400]})
+            return _finish(db, settings, run_id, started, decision, stages, artifacts)
+
+        if progress:
+            progress(68, "exporting GGUF")
+        toolchain = discover(settings)
+        try:
+            exported = export_gguf(artifacts["merged_dir"], output / "model-f16.gguf", toolchain=toolchain, log=log, cancel=cancel)
+            artifacts["gguf_f16"] = exported["output"]
+            record("export", "ok", {"size_bytes": exported["size_bytes"], "seconds": exported["duration_seconds"]})
+        except Exception as exc:  # noqa: BLE001
+            record("export", "failed", {"error": str(exc)[:400]})
+            return _finish(db, settings, run_id, started, decision, stages, artifacts)
+
+        if progress:
+            progress(85, "quantizing")
+        method = str(options.get("quant", "Q4_K_M"))
+        try:
+            quantized = quantize_gguf(artifacts["gguf_f16"], output / f"model-{method}.gguf", method, toolchain=toolchain, log=log, cancel=cancel)
+            artifacts["gguf_quant"] = quantized["output"]
+            record("quantize", "ok", {"method": method, "size_bytes": quantized["size_bytes"], "ratio": quantized["ratio"]})
+        except Exception as exc:  # noqa: BLE001
+            record("quantize", "failed", {"error": str(exc)[:400]})
         return _finish(db, settings, run_id, started, decision, stages, artifacts)
 
     if progress:

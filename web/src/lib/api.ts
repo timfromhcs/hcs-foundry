@@ -434,6 +434,10 @@ class ApiClient {
     return this.request<{ runs: Array<Record<string, unknown>> }>('/training/runs')
   }
 
+  trainingMergeInt4(payload: { adapter_dir: string; store_dir?: string; base_model_dir?: string; output_dir?: string; dtype?: string }) {
+    return this.request<{ job_id: string }>('/training/merge-int4', { method: 'POST', body: payload })
+  }
+
   // -- benchmarks --------------------------------------------------------
   suites() {
     return this.request<{

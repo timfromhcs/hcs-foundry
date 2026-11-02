@@ -389,6 +389,53 @@ def training_playbook(request: Request):
     return {"entries": playbook.entries(state.db)}
 
 
+class MergeInt4Request(BaseModel):
+    adapter_dir: str = Field(min_length=1, max_length=1024)
+    store_dir: str | None = Field(default=None, max_length=1024)
+    base_model_dir: str | None = Field(default=None, max_length=1024)
+    output_dir: str | None = Field(default=None, max_length=1024)
+    dtype: str = Field(default="float16", pattern="^(float16|bfloat16|float32)$")
+    shard_gb: float = Field(default=1.5, gt=0, le=8)
+
+
+@router.post("/training/merge-int4")
+def training_merge_int4(request: Request, body: MergeInt4Request):
+    from ..training.merge_int4 import merge_int4_adapter
+
+    state = _state(request)
+    adapter = Path(body.adapter_dir).expanduser()
+    adapter_dir = next(
+        (candidate for candidate in (adapter, adapter / "adapter") if (candidate / "lora_int4.pt").exists()),
+        None,
+    )
+    if adapter_dir is None:
+        raise HTTPException(status_code=400, detail=f"no lora_int4.pt found under {adapter}")
+    store = Path(body.store_dir).expanduser() if body.store_dir else adapter_dir.parent / "int4-store"
+    output = Path(body.output_dir).expanduser() if body.output_dir else adapter_dir.parent / "merged"
+
+    def job(ctx):
+        return merge_int4_adapter(
+            store,
+            adapter_dir,
+            output,
+            base_model_dir=body.base_model_dir,
+            dtype=body.dtype,
+            shard_bytes=int(body.shard_gb * 1024**3),
+            log=ctx.log,
+            progress=lambda pct, msg: ctx.progress(pct, msg),
+            cancel=ctx.cancel_event,
+        )
+
+    return {
+        "job_id": state.runner.submit(
+            "training.merge_int4",
+            job,
+            input_data={"adapter_dir": str(adapter_dir), "store_dir": str(store)},
+            heavy=True,
+        )
+    }
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ DEFAULT_UI_ORIGINS = [
     "http://localhost:4173",
     "http://127.0.0.1:8770",
     "http://localhost:8770",
+    # the deployed landing page may open the pairing page against this service
+    "https://hcs-foundry-site.vercel.app",
 ]
 
 
@@ -54,6 +56,19 @@ def _split_paths(raw: str | None) -> list[Path]:
         return []
     parts = [p.strip() for p in raw.replace(";", os.pathsep).split(os.pathsep)]
     return [Path(p).expanduser() for p in parts if p]
+
+
+def _split_origins(raw: str | None) -> list[str]:
+    """Split an origin list without touching the value.
+
+    Origins are URLs, so they must not go through ``Path`` (``Path("https://a").as_posix()``
+    collapses the double slash) and ``os.pathsep`` splitting is wrong on Windows for URLs.
+    Commas and semicolons are the separators.
+    """
+    if not raw:
+        return []
+    parts = [p.strip().rstrip("/") for p in raw.replace(";", ",").split(",")]
+    return [p for p in parts if p and p != "*"]
 
 
 def default_model_roots() -> list[Path]:
@@ -163,8 +178,8 @@ def load_settings() -> Settings:
     data_dir = Path(_env("FOUNDRY_DATA_DIR", str(repo_root() / "data"))).expanduser()
     model_roots = _split_paths(_env("FOUNDRY_MODEL_ROOTS")) or default_model_roots()
     import_roots = _split_paths(_env("FOUNDRY_IMPORT_ROOTS")) or default_import_roots()
-    ui_origins = _split_paths(_env("FOUNDRY_UI_ORIGINS"))
-    origins = [o.as_posix() for o in ui_origins] if ui_origins else list(DEFAULT_UI_ORIGINS)
+    ui_origins = _split_origins(_env("FOUNDRY_UI_ORIGINS"))
+    origins = ui_origins or list(DEFAULT_UI_ORIGINS)
 
     settings = Settings(
         data_dir=data_dir,

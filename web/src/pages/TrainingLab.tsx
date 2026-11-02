@@ -51,6 +51,23 @@ export function TrainingLab() {
   const environment = env.data as TrainingEnvironment | null
   const frozen = (datasets.data?.datasets ?? []).filter((item) => item.status === 'frozen' && item.rights_status === 'confirmed')
 
+  async function mergeRun(run: Record<string, unknown>) {
+    const checkpoint = String(run.checkpoint_dir ?? '')
+    if (!checkpoint) {
+      notify('danger', t('training.merge_hint'))
+      return
+    }
+    try {
+      await startJob(
+        () => api.trainingMergeInt4({ adapter_dir: `${checkpoint}/adapter` }),
+        t('training.merge_gguf'),
+      )
+      notify('ok', t('training.merge_started'))
+    } catch (error) {
+      notify('danger', error instanceof Error ? error.message : String(error))
+    }
+  }
+
   return (
     <>
       <div>
@@ -233,21 +250,51 @@ export function TrainingLab() {
                     <tr>
                       <th>{t('runs.type')}</th>
                       <th>{t('common.status')}</th>
+                      <th>{t('training.mode')}</th>
                       <th>{t('training.loss')}</th>
+                      <th>{t('training.peak_memory')}</th>
                       <th>{t('common.created')}</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
                     {runs.data.runs.map((run, index) => {
                       const metrics = (run.metrics as Record<string, unknown> | undefined) ?? {}
+                      const memory = (metrics.memory as Record<string, unknown> | undefined) ?? {}
+                      const offload = (metrics.offload as Record<string, unknown> | undefined) ?? null
+                      const mode = offload ? 'offload' : metrics.streaming ? 'streaming' : 'fp32'
+                      const peak = memory.peak_rss_mb
+                      const anon = memory.peak_private_mb
+                      const canMerge = String(run.backend ?? '') === 'int4_lora_sft' && Boolean(offload) && String(run.status ?? '') === 'completed'
                       return (
                         <tr key={index}>
                           <td className="mono tiny">{String(run.backend ?? '')}</td>
                           <td><Badge tone={statusTone(String(run.status ?? ''))}>{String(run.status ?? '')}</Badge></td>
+                          <td>
+                            <Badge tone={mode === 'offload' ? 'accent' : mode === 'streaming' ? 'info' : 'plain'}>
+                              {t(`training.mode_${mode}`)}
+                            </Badge>
+                          </td>
                           <td className="tiny">
                             {metrics.loss_first !== undefined ? `${Number(metrics.loss_first).toFixed(4)} → ${Number(metrics.loss_last).toFixed(4)}` : '—'}
                           </td>
+                          <td className="tiny mono" title={anon !== undefined && anon !== null ? `${Math.round(Number(anon))} MB anonymous` : undefined}>
+                            {peak !== undefined && peak !== null ? `${Math.round(Number(peak))} MB` : '—'}
+                          </td>
                           <td className="dim tiny">{formatDate(String(run.created_at ?? ''))}</td>
+                          <td>
+                            {canMerge ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                icon="layers"
+                                title={t('training.merge_hint')}
+                                onClick={() => void mergeRun(run)}
+                              >
+                                {t('training.merge_gguf')}
+                              </Button>
+                            ) : null}
+                          </td>
                         </tr>
                       )
                     })}

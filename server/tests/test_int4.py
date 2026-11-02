@@ -178,3 +178,61 @@ def test_int4_resource_estimate_is_smaller_than_fp32(tmp_path: Path):
     estimate = estimate_int4_resources(model_dir, config)
     assert estimate["quantized_bytes"] < estimate["weights_bytes"]
     assert estimate["streaming"] is True
+
+
+def test_blocked_linear_matches_monolithic():
+    import torch
+
+    from foundry.training.int4 import blocked_linear, quantize_int4
+
+    torch.manual_seed(0)
+    weight = torch.randn(37, 96) * 0.1
+    bias = torch.randn(37) * 0.01
+    packed, scales, shape = quantize_int4(weight)
+    x = torch.randn(2, 5, 96)
+
+    reference = blocked_linear(x, packed, scales, shape, bias, block=10_000)
+    for block in (1, 3, 16, 36):
+        got = blocked_linear(x, packed, scales, shape, bias, block=block)
+        assert got.shape == reference.shape
+        assert torch.allclose(got, reference, atol=1e-5), f"block={block} differs"
+
+
+def test_blocked_gradients_match_monolithic():
+    import torch
+
+    from foundry.training.int4 import blocked_grad_input, blocked_linear, quantize_int4
+
+    torch.manual_seed(1)
+    weight = torch.randn(23, 64) * 0.1
+    packed, scales, shape = quantize_int4(weight)
+
+    def run(block, base):
+        x = base.detach().clone().requires_grad_(True)
+        y = blocked_linear(x, packed, scales, shape, None, block=block)
+        y.sum().backward()
+        return y.detach(), x.grad
+
+    torch.manual_seed(7)
+    base = torch.randn(3, 64)
+    exact, grad_exact = run(10_000, base)
+    for block in (2, 7):
+        got, grad = run(block, base)
+        assert torch.allclose(got, exact, atol=1e-5)
+        assert torch.allclose(grad, grad_exact, atol=1e-4)
+
+    grad_out = torch.randn(3, 23)
+    ref = blocked_grad_input(grad_out, packed, scales, shape, block=10_000)
+    for block in (2, 7):
+        assert torch.allclose(blocked_grad_input(grad_out, packed, scales, shape, block=block), ref, atol=1e-4)
+
+
+def test_block_size_env_is_parsed_defensively(monkeypatch):
+    from foundry.training.int4 import DEFAULT_BLOCK, int4_block_size
+
+    monkeypatch.setenv("FOUNDRY_INT4_BLOCK", "64")
+    assert int4_block_size() == 64
+    monkeypatch.setenv("FOUNDRY_INT4_BLOCK", "not-a-number")
+    assert int4_block_size() == DEFAULT_BLOCK
+    monkeypatch.setenv("FOUNDRY_INT4_BLOCK", "0")
+    assert int4_block_size() == 1

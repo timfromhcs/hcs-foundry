@@ -56,7 +56,72 @@ def test_decide_switches_to_offload_when_ram_does_not_fit(db, settings, tmp_path
     assert "disk-backed" in decision["reason"]
 
 
-def test_decide_keeps_int4_in_ram_when_it_fits(db, settings, tmp_path: Path, monkeypatch):
+def test_unified_int4_merges_before_export_and_reports_every_stage(db, settings, tmp_path: Path, monkeypatch):
+    """The INT4 branch must not stop at 'cannot be merged' any more."""
+    from foundry.training import unified
+
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+    monkeypatch.setattr(
+        unified,
+        "decide",
+        lambda *a, **k: {
+            "ok": True,
+            "algorithm": "int4",
+            "offload": True,
+            "reason": "test-forced",
+            "config": {
+                "max_steps": 1,
+                "max_seq_len": 24,
+                "lora_r": 2,
+                "learning_rate": 1e-3,
+                "eval_every": 0,
+                "patience": 3,
+            },
+            "signature": "sig",
+            "playbook_seeded": False,
+            "weights_bytes": 1,
+            "estimate": {},
+        },
+    )
+    report = unified.run_unified(
+        db, settings, model_path=str(model_dir), dataset_id=dataset_id, options={"max_steps": 1}
+    )
+    stages = {stage["stage"]: stage for stage in report["stages"]}
+    assert stages["train"]["status"] == "ok"
+    assert stages["merge"]["status"] == "ok", stages["merge"]
+    assert Path(report["artifacts"]["merged_dir"]).is_dir()
+    # GGUF export depends on a discovered llama.cpp checkout; it must fail visibly, not silently
+    assert stages["export"]["status"] in {"ok", "failed"}
+
+
+def test_unified_int4_without_a_store_says_why_it_cannot_merge(db, settings, tmp_path: Path, monkeypatch):
+    from foundry.training import unified
+
+    model_dir = make_tiny_model(tmp_path / "tiny")
+    dataset_id = seed_dataset(db)
+    monkeypatch.setattr(
+        unified,
+        "decide",
+        lambda *a, **k: {
+            "ok": True,
+            "algorithm": "int4",
+            "offload": False,
+            "reason": "test-forced",
+            "config": {"max_steps": 1, "max_seq_len": 24, "lora_r": 2, "learning_rate": 1e-3, "eval_every": 0, "patience": 3},
+            "signature": "sig",
+            "playbook_seeded": False,
+            "weights_bytes": 1,
+            "estimate": {},
+        },
+    )
+    report = unified.run_unified(
+        db, settings, model_path=str(model_dir), dataset_id=dataset_id, options={"max_steps": 1}
+    )
+    stages = {stage["stage"]: stage for stage in report["stages"]}
+    assert stages["merge"]["status"] == "skipped"
+    assert "disk-backed store" in stages["merge"]["reason"]
+
     from foundry.training import unified
 
     model_dir = make_tiny_model(tmp_path / "tiny")

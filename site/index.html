@@ -62,6 +62,7 @@ header{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rg
 .mark{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(140deg,var(--accent),var(--accent-2));color:#04231f;font-weight:800}
 .nav-links{display:flex;gap:18px;margin-left:10px}
 .nav-links a{color:var(--text-2);font-size:14px;font-weight:520}
+#pair-facts[hidden]{display:none !important}
 .nav-links a:hover{color:var(--text);text-decoration:none}
 .nav-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
 @media(max-width:900px){.nav-links{display:none}}
@@ -168,6 +169,7 @@ footer .row{gap:20px}
       <a href="#training">Training</a>
       <a href="#quickstart">Quick start</a>
       <a href="#limits">Limits</a>
+      <a href="#pair">Pair</a>
     </nav>
     <div class="nav-actions">
       <a class="btn ghost sm" href="https://github.com/timfromhcs/hcs-foundry" target="_blank" rel="noopener">GitHub</a>
@@ -179,7 +181,7 @@ footer .row{gap:20px}
 
 <main id="top">
   <div class="wrap hero">
-    <span class="eyebrow">● v4.1.0 · local-first · MIT</span>
+    <span class="eyebrow">● v5.0.0 · local-first · MIT</span>
     <h1 style="margin-top:22px">Your local AI model lab.<br><span style="color:var(--accent)">Built to learn, tested to improve.</span></h1>
     <p class="lead">Pull GGUF models from Hugging Face, run them on Vulkan, clean your own agent logs, fine-tune LoRA or INT4, export and quantize GGUF, convert dense models to MoE, and benchmark coding and agentic tasks — all on one machine.</p>
     <div class="cta">
@@ -356,6 +358,45 @@ foundry gguf quantize data/gguf/model-f16.gguf --method Q4_K_M</pre></div>
     </div>
   </section>
 
+  <section id="pair" style="padding-top:20px">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <h2>Pair this page with your machine</h2>
+        <p>The deployed page is a client only. It asks your local service for a pairing token and then reads status — nothing is trained or stored in the cloud.</p>
+      </div>
+      <div class="grid g2">
+        <div class="card reveal">
+          <form id="pair-form" novalidate>
+            <label for="pair-base" class="small muted">Service URL</label>
+            <input id="pair-base" value="http://127.0.0.1:8770" autocomplete="off" spellcheck="false"
+                   style="width:100%;margin:6px 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font:inherit" />
+            <label for="pair-code" class="small muted">Pairing code (only if the service asks for one)</label>
+            <input id="pair-code" placeholder="printed on start" autocomplete="one-time-code"
+                   style="width:100%;margin:6px 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--border-2);background:var(--surface);color:var(--text);font:inherit" />
+            <button class="btn primary sm" id="pair-connect" type="submit">Pair with local service</button>
+          </form>
+          <div id="pair-status" role="status" aria-live="polite"
+               style="margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid var(--border-2);font-size:14px">
+            Probing <code>127.0.0.1:8770</code> …
+          </div>
+          <dl id="pair-facts" hidden style="display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:12px 0 0;font-size:14px">
+            <dt class="muted">Version</dt><dd id="pair-version" class="mono">—</dd>
+            <dt class="muted">Model</dt><dd id="pair-model" class="mono">—</dd>
+          </dl>
+        </div>
+        <div class="card reveal">
+          <h3 style="margin-top:0">What it can and cannot do</h3>
+          <ul class="muted small" style="padding-left:18px;margin:0">
+            <li><b>Can:</b> read health, machine profile, models and run history from your local service.</li>
+            <li><b>Cannot:</b> start training, download models or touch files without an explicit pairing token — and the token stays in this tab's memory.</li>
+            <li><b>Never:</b> no telemetry, no token in <code>localStorage</code>, no cloud inference.</li>
+          </ul>
+          <p class="muted small" style="margin-bottom:0">Blocked by the browser? Add this origin to <code>FOUNDRY_UI_ORIGINS</code> and restart the service:<br /><code>set FOUNDRY_UI_ORIGINS=https://hcs-foundry-site.vercel.app</code></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section style="padding-top:20px">
     <div class="wrap center reveal">
       <h2>Build your own local model lab</h2>
@@ -397,6 +438,67 @@ document.querySelectorAll('.gallery figure').forEach(fig=>fig.addEventListener('
   lb.querySelector('img').src=fig.dataset.full; lb.classList.add('open');
 }));
 lb.addEventListener('click',()=>lb.classList.remove('open'));
+
+// --- pairing demo (client only, token kept in memory) -----------------------
+(function(){
+  var token=null, base='http://127.0.0.1:8770';
+  var $=function(id){return document.getElementById(id)};
+  function say(html,tone){
+    var box=$('pair-status'); box.innerHTML=html;
+    box.style.borderColor = tone==='ok' ? '#1f6f63' : tone==='bad' ? '#6f2a2a' : 'var(--border-2)';
+  }
+  function req(path,opts){
+    opts=opts||{};
+    var headers={'Accept':'application/json'};
+    if(opts.body){headers['Content-Type']='application/json';headers['X-Foundry-Client']='1'}
+    if(token){headers['X-Foundry-Token']=token}
+    return fetch(base+path,{method:opts.method||'GET',headers:headers,credentials:'omit',mode:'cors',
+      body:opts.body?JSON.stringify(opts.body):undefined}).then(function(r){
+      return r.json().catch(function(){return {}}).then(function(payload){
+        if(!r.ok){
+          var d=(payload&&payload.detail)||{};
+          var code=(payload&&payload.error&&payload.error.code)||d.code||r.status;
+          var msg=(payload&&payload.error&&payload.error.message)||d.message||'request failed';
+          throw new Error(code+': '+msg);
+        }
+        return payload;
+      });
+    });
+  }
+  function offline(err){
+    var m=String(err&&err.message||err);
+    if(/Failed to fetch|NetworkError|Load failed/i.test(m)){
+      say('<b>No local service answered.</b> Start it with <code>foundry serve</code>, then pair.','bad');
+    }else if(/origin_not_allowed/i.test(m)){
+      say('<b>This origin is not allowlisted.</b> Add it to <code>FOUNDRY_UI_ORIGINS</code> and restart the service.','bad');
+    }else{
+      say('<b>Not connected.</b> '+m.replace(/</g,'&lt;'),'bad');
+    }
+    $('pair-facts').hidden=true;
+  }
+  $('pair-form').addEventListener('submit',function(event){
+    event.preventDefault();
+    base=($('pair-base').value||'http://127.0.0.1:8770').replace(/\/+$/,'');
+    $('pair-connect').disabled=true;
+    say('Contacting <code>'+base+'</code> …');
+    req('/api/v1/health').then(function(){
+      return req('/api/v1/system/pair',{method:'POST',body:{label:'deployed web demo',code:$('pair-code').value.trim()||null}});
+    }).then(function(paired){
+      token=paired.token;
+      say('<b>Paired.</b> Token received for this tab only.','ok');
+      return Promise.all([req('/api/v1/system/info'),req('/api/v1/inference/status').catch(function(){return {}})]);
+    }).then(function(results){
+      $('pair-facts').hidden=false;
+      $('pair-version').textContent=(results[0]&&results[0].version)||'—';
+      $('pair-model').textContent=(results[1]&&(results[1].name||results[1].id))||'no model loaded';
+    }).catch(offline).then(function(){$('pair-connect').disabled=false});
+  });
+  req('/api/v1/health').then(function(){
+    say('<b>Local service detected.</b> Pair to read status.');
+  }).catch(function(){
+    say('<b>No local service answered.</b> Start it with <code>foundry serve</code>, then pair.','bad');
+  });
+})();
 document.addEventListener('keydown',e=>{if(e.key==='Escape')lb.classList.remove('open')});
 </script>
 </body>

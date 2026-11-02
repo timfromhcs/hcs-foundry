@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,6 +92,64 @@ def int4_size_bytes(weight) -> dict:
 
 
 _INT4_MATMUL = None
+DEFAULT_BLOCK = 256
+
+
+def int4_block_size() -> int:
+    """Rows of the output matrix dequantized at once (``FOUNDRY_INT4_BLOCK``)."""
+    try:
+        value = int(os.environ.get("FOUNDRY_INT4_BLOCK", DEFAULT_BLOCK))
+    except (TypeError, ValueError):
+        return DEFAULT_BLOCK
+    return max(1, value)
+
+
+def blocked_linear(x, packed, scales, shape, bias=None, block: int | None = None):
+    """``x @ dequant(packed)^T + bias`` one row block at a time.
+
+    Dequantizing the full matrix first costs ``out_features * in_features * 4`` bytes per layer
+    (94 MB for a 9216x2560 projection) and drives the allocator into multi-gigabyte peaks over a
+    long run. Blocking keeps one block resident and writes straight into the output buffer.
+    """
+    torch, _, F = _torch()
+    out_features, in_features, padded = shape
+    step = block or int4_block_size()
+    if step >= out_features:
+        weight = dequantize_int4(packed, scales, shape, x.dtype)
+        return F.linear(x, weight, bias)
+    out = None
+    for start in range(0, out_features, step):
+        stop = min(start + step, out_features)
+        w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), x.dtype)
+        part = F.linear(x, w)
+        if out is None:
+            out = torch.empty(*part.shape[:-1], out_features, dtype=part.dtype, device=part.device)
+        out[..., start:stop] = part
+        del w, part
+    if bias is not None:
+        out = out + bias
+    return out
+
+
+def blocked_grad_input(grad_output, packed, scales, shape, block: int | None = None):
+    """``grad_output @ dequant(packed)`` accumulated block by block into one buffer."""
+    torch, _, _ = _torch()
+    out_features, in_features, padded = shape
+    step = block or int4_block_size()
+    if step >= out_features:
+        weight = dequantize_int4(packed, scales, shape, grad_output.dtype)
+        return grad_output @ weight
+    grad = None
+    for start in range(0, out_features, step):
+        stop = min(start + step, out_features)
+        w = dequantize_int4(packed[start:stop], scales[start:stop], (stop - start, in_features, padded), grad_output.dtype)
+        part = grad_output[..., start:stop] @ w
+        if grad is None:
+            grad = part
+        else:
+            grad.add_(part)
+        del w, part
+    return grad
 
 
 def _int4_matmul():
@@ -98,27 +157,26 @@ def _int4_matmul():
 
     Dequantizing inside a normal forward pass would retain every fp32 weight matrix until the
     backward pass finishes — 14 GiB for a 4B model. This function saves only the packed INT4
-    tensors and dequantizes again during backward, so peak memory stays at roughly one layer
+    tensors and dequantizes again during backward, so peak memory stays at roughly one block
     while the base weights remain frozen.
     """
     global _INT4_MATMUL
     if _INT4_MATMUL is not None:
         return _INT4_MATMUL
-    torch, _, F = _torch()
+    torch, _, _ = _torch()
 
     class _Int4Matmul(torch.autograd.Function):
         @staticmethod
-        def forward(ctx, x, packed, scales, shape, bias):
-            weight = dequantize_int4(packed, scales, shape, x.dtype)
+        def forward(ctx, x, packed, scales, shape, bias, block):
             ctx.save_for_backward(x, packed, scales)
             ctx.shape = shape
-            return F.linear(x, weight, bias)
+            ctx.block = block
+            return blocked_linear(x, packed, scales, shape, bias, block)
 
         @staticmethod
         def backward(ctx, grad_output):
             x, packed, scales = ctx.saved_tensors
-            weight = dequantize_int4(packed, scales, ctx.shape, x.dtype)
-            return grad_output @ weight, None, None, None, None
+            return blocked_grad_input(grad_output, packed, scales, ctx.shape, ctx.block), None, None, None, None, None
 
     _INT4_MATMUL = _Int4Matmul
     return _INT4_MATMUL
@@ -150,9 +208,10 @@ class Int4Linear:
 
             def forward(self, x):
                 if torch.is_grad_enabled() and x.requires_grad:
-                    return _int4_matmul().apply(x, self.packed, self.scales, self.shape, self.bias)
-                weight_t = dequantize_int4(self.packed, self.scales, self.shape, x.dtype)
-                return F.linear(x, weight_t, self.bias)
+                    return _int4_matmul().apply(
+                        x, self.packed, self.scales, self.shape, self.bias, int4_block_size()
+                    )
+                return blocked_linear(x, self.packed, self.scales, self.shape, self.bias)
 
             def extra_repr(self):
                 return f"in={self.in_features}, out={self.out_features}, int4"

@@ -94,6 +94,8 @@ def run_pipeline(
                 result = _stage_train(db, settings, options, progress=progress, cancel=cancel, log=log)
             elif stage == "merge":
                 result = _stage_merge(options, log=log)
+            elif stage == "merge_int4":
+                result = _stage_merge_int4(options, log=log, cancel=cancel)
             elif stage == "export":
                 result = _stage_export(options, log=log, cancel=cancel)
             elif stage == "quantize":
@@ -167,6 +169,30 @@ def _stage_train(db: Database, settings: Settings, options: dict, *, progress=No
     options["adapter_dir"] = result["manifest"]["adapter_dir"]
     options["train_run_id"] = result["run_id"]
     return {"run_id": result["run_id"], "adapter": result["manifest"]["adapter_dir"], "best_eval_loss": result["manifest"].get("best_eval_loss")}
+
+
+def _stage_merge_int4(options: dict, *, log=None, cancel=None) -> dict:
+    """Merge an INT4 LoRA adapter (disk store) into a plain fp16 checkpoint."""
+    from .training.merge_int4 import merge_int4_adapter
+
+    adapter = options.get("adapter_dir")
+    if not adapter:
+        raise ValueError("merge_int4 needs adapter_dir")
+    adapter_path = Path(adapter)
+    adapter_dir = adapter_path if (adapter_path / "lora_int4.pt").exists() else adapter_path / "adapter"
+    store = options.get("store_dir") or (adapter_dir.parent / "int4-store")
+    out = Path(options.get("merged_dir") or (adapter_dir.parent / "merged"))
+    result = merge_int4_adapter(
+        store,
+        adapter_dir,
+        out,
+        base_model_dir=options.get("base_model_dir") or options.get("model_path"),
+        dtype=options.get("merge_dtype", "float16"),
+        log=log,
+        cancel=cancel,
+    )
+    options["merged_dir"] = result["output"]
+    return result
 
 
 def _stage_merge(options: dict, *, log=None) -> dict:

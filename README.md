@@ -12,7 +12,7 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-4.1.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-5.0.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
@@ -73,7 +73,7 @@ Three rules drive the code:
 | **Data Studio** | 5 session adapters, consent gate, redaction, exact + near dedupe, leakage-safe splits, freeze, export | ✅ |
 | **Identity Maker** | One prompt → editable identity card → synthetic dataset → deterministic evaluation | ✅ |
 | **Training** | SFT, DPO, distillation, INT4/QLoRA (in-RAM or disk-backed); OpenEval; auto LR/stop; best checkpoint; playbook | ✅ 0.6B + 4B proven |
-| **GGUF out** | Merge adapter → convert to GGUF → quantize Q2–Q8 → verify by inference | ✅ 0.6B end-to-end |
+| **GGUF out** | Merge adapter → convert to GGUF → quantize Q2–Q8 → verify by inference | ✅ 0.6B end-to-end, incl. INT4 adapters |
 | **MoEfication** | Dense FFN → N experts + top-k router, forward-checked, memory-guarded | ✅ small scale |
 | **Benchmarks** | Instruction, executed codegen, repo-fix, agentic, SWE-bench-format adapter (venv per case) | ✅ |
 | **Upgrade Lab** | Failure taxonomy → candidate → re-eval → holdout guard → human gate → rollback | ✅ |
@@ -277,7 +277,9 @@ The full list is in [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/K
 - [x] Completed 4B streaming-INT4 training run with measured peak RSS
       ([evidence](docs/evidence/v41_int4_4b.md))
 - [x] Permanent Vercel deployment of the landing site
-- [ ] Paired web demo: the deployed page driving a local service through the pairing flow
+- [x] Paired web demo: the deployed page drives the local service through the pairing flow
+      ([evidence](docs/evidence/v5_loop.md))
+- [x] INT4 adapter → merged fp16 → GGUF → quantized → answers
 - [ ] GGUF → HF safetensors conversion to continue training from a quantized file
 - [ ] Verified Vulkan/ROCm training backend when a framework supports it
 - [ ] Official SWE-bench / Terminal-Bench assets with hardened isolation

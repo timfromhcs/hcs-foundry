@@ -808,6 +808,43 @@ def cmd_train_int4(args) -> int:
     return 0
 
 
+def cmd_train_merge_int4(args) -> int:
+    from .training.merge_int4 import merge_int4_adapter
+
+    state = build_state()
+    adapter = Path(args.adapter).expanduser()
+    adapter_dir = next(
+        (candidate for candidate in (adapter, adapter / "adapter") if (candidate / "lora_int4.pt").exists()),
+        None,
+    )
+    if adapter_dir is None:
+        return _fail(f"no lora_int4.pt found under {adapter}")
+    store = Path(args.store).expanduser() if args.store else adapter_dir.parent / "int4-store"
+    out = Path(args.out).expanduser() if args.out else adapter_dir.parent / "merged"
+    try:
+        result = merge_int4_adapter(
+            store,
+            adapter_dir,
+            out,
+            base_model_dir=args.base,
+            dtype=args.dtype,
+            shard_bytes=int(args.shard_gb * 1024**3),
+            log=(None if args.json else print),
+            progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _fail(str(exc))
+    if not args.json:
+        print()
+    _print(
+        result,
+        args.json,
+        f"merged {result['quantized_weights_merged']} INT4 layers + LoRA into {result['output']} "
+        f"({len(result['shards'])} shards, {result['size_bytes'] / 1024**3:.2f} GiB, {result['duration_seconds']} s)",
+    )
+    return 0
+
+
 def cmd_pipeline(args) -> int:
     from .pipeline import run_pipeline
 
@@ -1094,6 +1131,15 @@ def build_parser() -> argparse.ArgumentParser:
     t_unified.add_argument("--quant", default="Q4_K_M")
     t_unified.add_argument("--json", action="store_true")
     t_unified.set_defaults(func=cmd_train_unified)
+    t_merge = train_sub.add_parser("merge-int4", help="merge an INT4 LoRA adapter into a plain fp16 checkpoint")
+    t_merge.add_argument("--adapter", required=True, help="run directory or adapter directory with lora_int4.pt")
+    t_merge.add_argument("--store", default=None, help="int4-store directory (default: next to the adapter)")
+    t_merge.add_argument("--base", default=None, help="base HF directory (default: recorded in the store)")
+    t_merge.add_argument("--out", default=None)
+    t_merge.add_argument("--dtype", default="float16", choices=["float16", "bfloat16", "float32"])
+    t_merge.add_argument("--shard-gb", type=float, default=1.5)
+    t_merge.add_argument("--json", action="store_true")
+    t_merge.set_defaults(func=cmd_train_merge_int4)
 
     pipeline = sub.add_parser("pipeline", help="all-in-one orchestration")
     pipeline_sub = pipeline.add_subparsers(dest="pipeline_command", required=True)

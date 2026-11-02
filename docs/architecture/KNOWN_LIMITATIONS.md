@@ -43,57 +43,65 @@ marked as untested.
 ## Training
 
 13. **GGUF is not a training format.** GGUF stays an inference/distribution format. Training
-    runs on safetensors checkpoints; export writes GGUF from a merged fp32 directory.
-14. **The disk-backed INT4 store trades throughput for memory.** Weights are memory-mapped
+    runs on safetensors checkpoints; `train merge-int4` rebuilds fp16 safetensors from an INT4
+    store and the GGUF export writes from that directory.
+14. **Merging an INT4 adapter needs the disk-backed store.** An INT4 run started without
+    `--offload` has no `int4-store/`, so the adapter cannot be merged; the trainer says so
+    instead of pretending. Merging also needs the original base directory for the tensors the
+    store skipped (vision tower, MTP head).
+15. **Only 0.6B is proven end-to-end** through merge → GGUF → quantize. The same chain for the
+    4B vision-language checkpoint was not run: it writes ~17 GB and the installed
+    `convert_hf_to_gguf.py` support for that architecture is unverified.
+16. **The disk-backed INT4 store trades throughput for memory.** Weights are memory-mapped
     from `weights.u8` / `scales.f32` / `rest.f32`, so they occupy file-backed pages instead of
     anonymous RAM. The first pass reads from disk and is slower than the in-RAM path; the
     OS page cache is the RAM buffer, not a guarantee of residency.
-15. **Checkpoint key wrappers.** Multimodal checkpoints (`model.language_model.*`,
+17. **Checkpoint key wrappers.** Multimodal checkpoints (`model.language_model.*`,
     `model.visual.*`, `mtp.*`) are normalised by dropping the wrapper segment and skipping
     unresolved subtrees. The skip is reported in the manifest, and a hard meta-device check
     fails the load if a *needed* weight was missing — but a text-only run genuinely does not
     use the vision tower.
-16. **Checkpoint resume** works for the local SFT/INT4 trainers; interoperability with
+18. **Checkpoint resume** works for the local SFT/INT4 trainers; interoperability with
     external trainers is not guaranteed.
-17. **The preflight is an estimate.** `estimate_int4_resources` predicts the envelope; the
+19. **The preflight is an estimate.** `estimate_int4_resources` predicts the envelope; the
     manifest's `memory.peak_rss_mb` is the measured truth and can differ.
 
 ## Benchmarks
 
-18. **Local suites only.** Scores are labelled `project-specific smoke` and are **not**
+20. **Local suites only.** Scores are labelled `project-specific smoke` and are **not**
     comparable to leaderboards.
-19. **No official benchmark assets** (SWE-bench, Terminal-Bench, OSWorld, WebArena, GAIA,
+21. **No official benchmark assets** (SWE-bench, Terminal-Bench, OSWorld, WebArena, GAIA,
     MMMU) are bundled or downloaded. The UI shows them as "not run" with a link to the
     official instructions.
-20. **Generated-code execution** is sandboxed by a subprocess with a timeout, a temp working
+22. **Generated-code execution** is sandboxed by a subprocess with a timeout, a temp working
     directory and an optional per-case venv — not by a VM or container. Do not treat it as a
     hardened sandbox.
 
 ## Agent
 
-21. **Allowlisted tools only.** No arbitrary shell. The agent cannot install packages, push,
+23. **Allowlisted tools only.** No arbitrary shell. The agent cannot install packages, push,
     or touch paths outside the workspace.
-22. **No MCP auto-discovery** of third-party servers; the settings screen records declared
+24. **No MCP auto-discovery** of third-party servers; the settings screen records declared
     MCP servers but does not spawn them.
 
 ## Deployment
 
-23. **Vercel hosts the landing page only** — a static page, no functions, no inference, no
+25. **Vercel hosts the landing page only** — a static page, no functions, no inference, no
     training. The local service binds to `127.0.0.1`; a deployed page reaches it only through
     the explicit pairing flow.
-24. **The landing page is one static file.** It has no CMS and no build step; edits are
+26. **The landing page is one static file.** It has no CMS and no build step; edits are
     committed and redeployed.
-25. **Deployment credentials** are environment-specific; if absent, the release stops before
+27. **Deployment credentials** are environment-specific; if absent, the release stops before
     deployment and says so.
 
 ## Packaging
 
-26. **The executable excludes the ML stack.** Fine-tuning requires the source install; the
+28. **The executable excludes the ML stack.** Fine-tuning requires the source install; the
     EXE reports `requires_stack` instead of failing silently.
-27. **The standalone build is Windows-only** in this release. The same PyInstaller spec can
+29. **The standalone build is Windows-only** in this release. The same PyInstaller spec can
     be adapted for Linux/macOS but was not tested.
 
 ## Language
 
-28. **de/en/fr are complete for all shipped UI strings.** Additional locales are
+30. **de/en/fr are complete for all shipped UI strings.** Additional locales are
     architecture-ready but not translated.

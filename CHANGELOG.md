@@ -2,6 +2,50 @@
 
 All notable changes to HCS Foundry.
 
+## [5.0.0] — 2026-11-02
+
+Turns the proven mechanisms into one usable path: a model that was trained with INT4 now
+leaves the machine as a normal GGUF, and the deployed page can talk to the local service.
+
+### Added
+
+- **INT4 adapter → merged checkpoint** (`foundry/training/merge_int4.py`):
+  `W = dequantize_int4(packed, scales) + (B @ A) * (alpha/r)` streamed into ≤1.5 GB fp16
+  shards with an index, plus config/tokenizer. Non-target tensors (vision tower, MTP head)
+  are taken from the original checkpoint, so the result is a complete HF directory.
+  CLI `train merge-int4`, API `POST /training/merge-int4`, pipeline stage `merge_int4`.
+- **The unified trainer now finishes the chain for INT4**: train → merge → export GGUF →
+  quantize, instead of skipping merge with "cannot be merged".
+- **Memory-bounded INT4 matmul**: `blocked_linear` / `blocked_grad_input` dequantize one
+  row block at a time (default 256 rows, `FOUNDRY_INT4_BLOCK`) and write into the output
+  buffer. Isolated measurement on the 4B MLP shape: transient 279 MB → 0 MB, no slowdown.
+- **Pairing section on the landing page** (`/#pair`): probes the local service, pairs with a
+  token kept in memory, explains the boundary, and reports "no local service answered"
+  instead of pretending.
+- **`FOUNDRY_UI_ORIGINS`** now parses URLs correctly (it went through `Path`, which collapsed
+  `https://`); the deployed site origin is in the default allowlist.
+- **Training Lab**: runs table shows the load mode (`fp32` / `streaming` / `disk offload`),
+  the measured peak memory, and a "Merge → GGUF" action for completed INT4 runs (de/en/fr).
+
+### Fixed
+
+- A `dl[hidden]` element was still visible because an inline `display: grid` overrode it.
+- `vercel.json` no longer relies on `cleanUrls` for the second page (the rewrite 404'd).
+
+### Verified
+
+- 0.6B end-to-end: INT4 offload training (loss 5.4147 → 4.3085) → merge (196 layers + LoRA,
+  1.41 GiB fp16, 29.8 s) → GGUF F16 (1439 MiB) → Q4_K_M (462 MiB, 13.8 s) → **loads and
+  answers at 117 tok/s** (`docs/evidence/v5_loop.md`).
+- 193 backend tests, 7 frontend tests, 9 Playwright E2E tests, CI green.
+- Landing page: HTTP 200, `/#pair` present, offline state asserted in Playwright.
+
+### Still open
+
+- **4B end-to-end export** was not completed: the 4B merge/GGUF chain needs ~17 GB of disk
+  writes and the converter's Qwen3.5 support is unverified; only 0.6B is proven.
+- Official SWE-bench assets, Vulkan training, GGUF→HF conversion remain open.
+
 ## [4.1.0] — 2026-11-01
 
 Closes the gaps the v4.0 release left open. No new product surface.
