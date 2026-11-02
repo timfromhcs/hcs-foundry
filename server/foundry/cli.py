@@ -812,6 +812,149 @@ def cmd_train_int4(args) -> int:
     return 0
 
 
+def cmd_train_spec(args) -> int:
+    """`train plan` (preflight only) and `train run` (execute a spec)."""
+    from .train.base import TrainContext
+    from .train.registry import get_trainer, load_builtin_trainers
+    from .train.spec import load_spec
+
+    state = build_state()
+    try:
+        spec = load_spec(args.spec)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(f"invalid spec: {exc}")
+    load_builtin_trainers()
+    try:
+        trainer = get_trainer(spec)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(str(exc))
+    output = Path(args.out).expanduser() if getattr(args, "out", None) else state.settings.training_dir / f"spec_{int(time.time())}"
+    ctx = TrainContext(
+        out_dir=output,
+        progress=(None if args.json else lambda pct, msg: print(f"\r{pct:5.1f}% {msg[:70]:<70}", end="", flush=True)),
+        log=(None if args.json else print),
+        db=state.db,
+        settings=state.settings,
+    )
+    preflight = trainer.preflight(spec, ctx)
+    if args.train_command == "plan" or not preflight.ok:
+        payload = {
+            "spec_hash": spec.spec_hash,
+            "method": spec.method.value,
+            "backend": spec.backend.value,
+            "profile": spec.profile.value,
+            "preflight": preflight.to_public(),
+            "trainer": f"{trainer.method.value}/{trainer.backend.value}",
+        }
+        _print(payload, args.json, "\n".join([
+            f"spec      {spec.spec_hash}",
+            f"trainer   {trainer.method.value}/{trainer.backend.value} ({spec.profile.value})",
+            f"preflight {'ok' if preflight.ok else 'BLOCKED'}",
+            *[f"  blocker {item}" for item in preflight.blockers],
+            *[f"  warning {item}" for item in preflight.warnings],
+        ]))
+        return 0 if preflight.ok else 1
+    try:
+        result = trainer.run(spec, ctx)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(str(exc))
+    manifest = result.manifest
+    payload = {
+        "run_id": result.run_id,
+        "out_dir": str(output),
+        "manifest": manifest.model_dump(mode="json"),
+    }
+    _print(
+        payload,
+        args.json,
+        f"run {result.run_id} ({manifest.legacy_kind or spec.method.value}): "
+        f"{manifest.steps} steps, loss {manifest.losses[0] if manifest.losses else 'n/a'} → "
+        f"{manifest.losses[-1] if manifest.losses else 'n/a'}, "
+        f"param_delta {manifest.param_delta_max}, adapter {manifest.adapter_dir}",
+    )
+    return 0
+
+
+def cmd_train_doctor(args) -> int:
+    """Show which trainers are registered and, with --model/--dataset, run the matrix."""
+    import importlib.util
+
+    from .train.conformance import (
+        check_manifest_valid,
+        check_preflight_honesty,
+        check_real_optimisation,
+        check_source_untouched,
+        hash_model_files,
+    )
+    from .train.base import TrainContext
+    from .train.registry import get_trainer, list_trainers, load_builtin_trainers
+    from .train.spec import Method, Backend, Profile, spec_for_profile
+
+    state = build_state()
+    load_builtin_trainers()
+    stacks = {
+        name: importlib.util.find_spec(name) is not None
+        for name in ("torch", "transformers", "peft", "accelerate", "safetensors")
+    }
+    registered = [f"{method.value}/{backend.value}" for method, backend in list_trainers()]
+    report: dict = {"stacks": stacks, "trainers": registered, "runs": []}
+
+    if args.model and args.dataset:
+        for method, backend in list_trainers():
+            if method.value == "distill":
+                report["runs"].append({"trainer": f"{method.value}/{backend.value}", "skipped": "needs a live teacher"})
+                continue
+            spec = spec_for_profile(
+                method=method,
+                backend=backend,
+                model_path=args.model,
+                dataset_id=args.dataset,
+                profile=Profile.CI_TINY,
+                hyper={"seq_len": 24, "max_steps": 1, "lora_r": 2, "lora_alpha": 4, "lr": 1e-3},
+                method_args={"eval_every": 0},
+            )
+            trainer = get_trainer(spec)
+            ctx = TrainContext(
+                out_dir=state.settings.training_dir / f"doctor_{method.value}_{backend.value}",
+                db=state.db,
+                settings=state.settings,
+            )
+            before = hash_model_files(spec)
+            checks = [check_preflight_honesty(trainer, spec, ctx)]
+            if not trainer.preflight(spec, ctx).ok:
+                report["runs"].append({
+                    "trainer": f"{method.value}/{backend.value}",
+                    "checks": [check.to_public() for check in checks],
+                    "blocked": trainer.preflight(spec, ctx).blockers,
+                })
+                continue
+            result = trainer.run(spec, ctx)
+            checks.append(check_manifest_valid(result.manifest))
+            checks.append(check_source_untouched(trainer, spec, ctx, before))
+            checks.append(check_real_optimisation(result.manifest))
+            report["runs"].append({
+                "trainer": f"{method.value}/{backend.value}",
+                "checks": [check.to_public() for check in checks],
+            })
+
+    failed = [run for run in report["runs"] if any(c["status"] == "failed" for c in run.get("checks", []))]
+    report["ok"] = not failed
+    lines = [
+        "stacks    " + ", ".join(f"{name}={'yes' if ok else 'NO'}" for name, ok in stacks.items()),
+        "trainers  " + ", ".join(registered),
+    ]
+    if not args.model:
+        lines.append("matrix    pass --model <dir> --dataset <id> to run the conformance checks")
+    for run in report["runs"]:
+        if run.get("skipped"):
+            lines.append(f"  {run['trainer']}: skipped ({run['skipped']})")
+            continue
+        statuses = ", ".join(f"{check['check']}={check['status']}" for check in run["checks"])
+        lines.append(f"  {run['trainer']}: {statuses}")
+    _print(report, args.json, "\n".join(lines))
+    return 0 if report["ok"] else 1
+
+
 def cmd_run(args) -> int:
     """One-screen local health report: hardware, budget, runtime, stores, data."""
     from .library import list_models
@@ -1257,6 +1400,20 @@ def build_parser() -> argparse.ArgumentParser:
     t_unified.add_argument("--quant", default="Q4_K_M")
     t_unified.add_argument("--json", action="store_true")
     t_unified.set_defaults(func=cmd_train_unified)
+    t_plan = train_sub.add_parser('plan', help='validate a train spec and show the preflight')
+    t_plan.add_argument('--spec', required=True)
+    t_plan.add_argument('--json', action='store_true')
+    t_plan.set_defaults(func=cmd_train_spec, train_command='plan')
+    t_rundoc = train_sub.add_parser('run', help='execute a train spec end to end')
+    t_rundoc.add_argument('--spec', required=True)
+    t_rundoc.add_argument('--out', default=None)
+    t_rundoc.add_argument('--json', action='store_true')
+    t_rundoc.set_defaults(func=cmd_train_spec, train_command='run')
+    t_doctor = train_sub.add_parser('doctor', help='list trainers and run the conformance matrix')
+    t_doctor.add_argument('--model', default=None)
+    t_doctor.add_argument('--dataset', default=None)
+    t_doctor.add_argument('--json', action='store_true')
+    t_doctor.set_defaults(func=cmd_train_doctor)
     t_merge = train_sub.add_parser("merge-int4", help="merge an INT4 LoRA adapter into a plain fp16 checkpoint")
     t_merge.add_argument("--adapter", required=True, help="run directory or adapter directory with lora_int4.pt")
     t_merge.add_argument("--store", default=None, help="int4-store directory (default: next to the adapter)")

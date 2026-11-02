@@ -7,9 +7,25 @@ foundry serve | scan | info | token
 foundry hf       search | files | pull | token
 foundry models   list | scan | verify | load | unload | run
 foundry bench    instruction_adherence | codegen_exec | latency_throughput
-foundry train    smoke | preflight | sft
+foundry train    smoke | preflight | sft | auto | dpo | distill | int4 | unified | plan | run | doctor | merge-int4
+foundry run      doctor
+foundry mcp      serve
+foundry vram     status | clear
 foundry datasets list
 ```
+
+## Spec-driven training (v8)
+
+```bash
+foundry train plan   --spec spec.yaml                  # validate + preflight only
+foundry train run    --spec spec.yaml [--out DIR]      # execute; writes RunManifest v2
+foundry train doctor [--model DIR --dataset ID]        # registry + conformance matrix
+```
+
+`plan` prints the `spec_hash`, the selected trainer and every blocker/warning; it exits non-zero
+when the spec cannot run. `doctor` without arguments lists the registered `method/backend` pairs
+and which stacks are importable; with `--model` and `--dataset` it runs the conformance checks on
+a tiny configuration.
 
 ## Examples
 

@@ -869,10 +869,10 @@ vocabulary (`AGENTS.md` §19): *detected ≠ tested*, *trained ≠ improved*, *b
 | P0 baseline/hygiene | **done** | docs/evidence/v8_baseline.md, server/requirements-*-lock.txt, web/dist untracked |
 | P1 CI honesty | **done** | CI installs 
 equirements-train-lock.txt; FOUNDRY_REQUIRE_TRAIN=1 + 	ests/conftest.py guard + 	est_ci_guard.py |
-| P2 unified contract | open | | |
-| P3 stats gate | open | | |
-| PG-1 v7.1.0 | open | | |
-| P4 generators | open | | |
+| P2 unified contract | **core done, surfaces partial** | oundry/train/*, adapters, 	rain plan|run|doctor, conformance matrix; API/UI not wired |
+| P3 stats gate | **done** | oundry/train/stats.py (11 tests), upgrade.promote() rewritten, six-case flip refused |
+| PG-1 v7.1.0 | **ready for push** | 264 backend tests, 0 skips; see docs/plan/V8_BLOCKERS.md |
+| P4 generators | not started | multi-day item; see blockers |
 | P5 flywheel + result | open | | |
 | P6 on-policy distill | open | | |
 | PG-2 v7.2.0 | open | | |

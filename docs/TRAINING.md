@@ -1,5 +1,55 @@
 # Training
 
+## The unified training contract (v8)
+
+One declarative spec drives every method, and one manifest shape comes back.
+
+```yaml
+# spec.yaml
+spec_version: 1
+method: int4            # sft | int4 | dpo | distill | rft | onpolicy_distill | grpo
+backend: int4_store     # fp32_lora | int4_stream | int4_store | remote
+profile: local-smoke    # ci-tiny | local-smoke | local-real | remote
+model:
+  path: "E:/models/Qwen3-0.6B"
+data:
+  dataset_id: ds_xxx
+  min_rows: 2
+hyper:                  # every value explicit, no hidden global
+  lr: 0.0002
+  lora_r: 4
+  lora_alpha: 16
+  micro_batch: 1
+  grad_accum: 1
+  seq_len: 128
+  max_steps: 2
+  seed: 42
+budget:
+  max_wall_s: 1800
+```
+
+```bash
+foundry train plan   --spec spec.yaml                  # validate + preflight, no training
+foundry train run    --spec spec.yaml                  # execute, writes a RunManifest v2
+foundry train doctor --model <dir> --dataset <id>      # run the conformance matrix
+```
+
+Why this exists:
+
+- **Typos fail loudly.** `extra="forbid"` on the spec and every sub-model; a misspelled
+  `learningrate` raises `ValidationError` instead of silently using a default.
+- **One manifest.** `RunManifest` v2 carries the spec hash, environment, losses, memory, tuning
+  and `extras`; `from_legacy()` maps the pre-v8 shapes (sft/int4/dpo/distill) so old run
+  directories stay readable and nothing is dropped.
+- **One conformance matrix.** Every registered trainer is checked the same way: honest preflight,
+  a real parameter update (`max |LoRA-B| > 0`), a valid manifest, untouched base weights. A check
+  that cannot apply reports `not_applicable` with a reason instead of pretending.
+- **Profiles, not copies.** `ci-tiny` (random tiny model, 24 tokens, 1–2 steps) proves mechanics in
+  CI; `local-smoke` proves integration with a real tokenizer; `local-real` is the quality run.
+
+The legacy commands (`train sft|int4|dpo|distill|auto|unified`) still work unchanged — they are
+the implementation the adapters call.
+
 ## The honest state machine
 
 | State | Meaning | What you can do |
