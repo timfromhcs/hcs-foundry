@@ -49,6 +49,43 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2
 <h1>Changelog</h1>
 <p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
 <p>All notable changes to HCS Foundry.</p>
+<h2>[7.2.0] — 2026-11-02</h2>
+<p>Browser runtime release: a small model can now run <strong>inside the tab</strong> (WebGPU/WASM via</p>
+<p>Transformers.js), fed from the local service instead of a CDN. Detection and limits are measured,</p>
+<p>not advertised.</p>
+<h3>Added</h3>
+<ul>
+<li><strong>Browser runtime panel</strong> in *Playground* (<code>web/src/components/BrowserRuntimePanel.tsx</code>). It shows live capability chips (WebGPU adapter, WASM SIMD, threads, cores, device memory, secure context), the computed safe limits with a reason for every number, the browser-model inventory, and a load/generate path with streaming output and tok/s. It is rendered with and without a loaded GGUF model.</li>
+<li><strong>Capability detection</strong> (<code>web/src/lib/browserRuntime.ts</code>): <code>navigator.gpu.requestAdapter()</code> plus <code>maxBufferSize</code>/<code>maxStorageBufferBindingSize</code>, validated WebAssembly module probes for SIMD and threads, <code>SharedArrayBuffer</code>, <code>crossOriginIsolated</code>, <code>deviceMemory</code>, <code>hardwareConcurrency</code>, <code>navigator.storage.estimate()</code>.</li>
+<li><strong>Safe limits as rules, not magic values</strong>: WebGPU → <code>q4</code>, context 2048, model ≤ 3 GB; WASM → <code>q8</code> (fp32 without SIMD), context 512, model ≤ <strong>1.25 GB</strong>; threads only when the page is cross-origin isolated. Models above the limit are refused with numbers instead of attempting a load that would kill the tab.</li>
+<li><strong>Local model serving</strong> (<code>server/foundry/browser_runtime.py</code>): <code>GET /api/v1/browser/runtime</code> (inventory + readiness, naming missing files) and <code>GET /api/v1/browser/models/{id}/{path}</code> (one file, path-traversal checked, <code>no-store</code> + <code>nosniff</code>). Transformers.js runs with <code>allowRemoteModels = false</code>, so nothing is fetched from the internet at runtime.</li>
+<li><strong>Stress test</strong> <code>web/scripts/browser_stress.mjs</code>: pairs with the service, reads the panel, probes how much memory the tab is actually granted, optionally runs a real generation, and exits non-zero when the panel errors or claims a backend it cannot deliver.</li>
+<li><code>docs/BROWSER_RUNTIME.md</code> with the measured table and an explicit &quot;not parity / not measured&quot; section.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><strong>i18n placeholders never interpolated.</strong> All three dictionaries use single braces (<code>{count}</code>), but i18next was configured with its default double-brace prefix, so six keys — including the pre-existing <code>overview.jobs_running</code> — rendered <code>{...}</code> literally. The interpolation prefix/suffix is now explicit and <code>locales.test.ts</code> keeps the placeholder sets aligned.</li>
+<li><strong>WASM SIMD was reported as unavailable in every browser.</strong> The probe module was not valid WebAssembly (<code>WebAssembly.validate</code> returned false), so the panel always claimed &quot;no SIMD&quot;. The probe is now a valid minimal module, verified in Node and Chromium; the unused relaxed-SIMD probe was removed.</li>
+<li><strong>The browser panel was unreachable.</strong> <code>Playground</code> returned early when no model was loaded, so the card only existed after starting the native runtime — exactly backwards for a fallback UI.</li>
+<li><strong><code>GET /machine/profile</code> 404&#x27;d on a fresh install.</strong> &quot;Not scanned yet&quot; is a state, not a missing resource; Chromium logs every 404 resource load as a console error, so a clean install opened the console with a red line. It now answers <code>200 {&quot;profile&quot;: null, &quot;budget&quot;: null, &quot;scanned&quot;: false}</code> (matching <code>/machine/budget</code>, which already tolerated an empty profile), and the new E2E test — which asserts zero console errors — is what surfaced it.</li>
+</ul>
+<h3>Measured (headless Chromium, this machine, 2026-11-02)</h3>
+<p>```</p>
+<p>backend      WASM (no adapter granted to the headless browser)</p>
+<p>SIMD         yes · threads no (page is not cross-origin isolated) · 16 cores · 16 GB device memory</p>
+<p>limits       model ≤ 1.25 GB · context 512 · dtype q8 · 1 thread</p>
+<p>allocation   tab granted 1536 MiB (bounded probe, released immediately)</p>
+<p>inference    skipped — no ONNX model installed under data/browser-models/</p>
+<p>console      no errors</p>
+<p>```</p>
+<p>Browser token throughput is <strong>not measured</strong>: no ONNX export was installed in this session, and the</p>
+<p>stress test prints that instead of a number.</p>
+<h3>Tests</h3>
+<ul>
+<li>Backend 269 passed (5 new: inventory, honest empty state, path traversal, serve, empty machine profile).</li>
+<li>Frontend 17 passed (10 new: limits, ceilings, refusals, <code>formatBytes</code>).</li>
+<li>E2E 10 passed (1 new: panel renders live capabilities and refuses without a model).</li>
+</ul>
 <h2>[7.1.0] — 2026-11-02</h2>
 <p>Trust release: CI now tests the trainers, and the promotion gate uses statistics instead of a</p>
 <p>fixed delta.</p>
