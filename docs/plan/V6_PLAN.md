@@ -81,6 +81,11 @@ Why this is more than a cache:
       (`--checkpointing auto|on|off`), recorded in the manifest
 - [ ] test: gradients equal to non-checkpointed within 1e-5 on the tiny model
 
+**Status: cancelled with a measurement.** At `seq 128` the activations of the 4B model are
+`1 × 128 × 2560 × 32 × 2 × 4 ≈ 84 MB`, while the run's private peak is gigabytes. Checkpointing
+would trade compute for a fraction of a percent of memory. The plan promised it "for ≥2B"; the
+measurement says it is not the lever, so it is not built and not claimed.
+
 ### V4 — 2B class end-to-end
 
 - [ ] pull `Qwen/Qwen3-1.7B` (public, ~3.4 GB bf16) into `data/models`

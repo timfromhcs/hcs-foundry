@@ -111,7 +111,8 @@ class BlockCache:
     ) -> None:
         self.dequantize = dequantize
         self.budget_bytes = max(0, int(budget_bytes))
-        self.arena_limit = max(0, int(arena_bytes))
+        self.enabled = self.budget_bytes > 0
+        self.arena_limit = max(0, int(arena_bytes)) if self.enabled else 0
         self.block_rows = max(1, int(block_rows))
         self.log = log
         self.enabled_prefetch = bool(prefetch)
@@ -124,6 +125,7 @@ class BlockCache:
         self._closed = False
         self.stats = CacheStats()
         self._pending: set[BlockKey] = set()
+        self._prefetched: set[BlockKey] = set()
         self._prefetch_thread: threading.Thread | None = None
         self._prefetch_queue: list[BlockKey] = []
         self._prefetch_stop = threading.Event()
@@ -135,7 +137,7 @@ class BlockCache:
         self._map_size = 0
         if self.arena_limit > 0:
             self._open_arena()
-        if self.enabled_prefetch:
+        if self.enabled_prefetch and self.enabled:
             self._prefetch_thread = threading.Thread(target=self._prefetch_loop, name="vram-prefetch", daemon=True)
             self._prefetch_thread.start()
 
@@ -211,8 +213,11 @@ class BlockCache:
         if offset is None:
             return
         try:
-            self._map[offset : offset + size] = payload.numpy().tobytes()
-        except (ValueError, BufferError) as exc:  # noqa: BLE001
+            # one copy: write the tensor's bytes straight into the mapping
+            target = _torch().frombuffer(self._map, dtype=_torch().uint8, count=size, offset=offset)
+            target.copy_(payload.view(_torch().uint8).reshape(-1))
+            del target
+        except (ValueError, BufferError, TypeError) as exc:  # noqa: BLE001
             if self.log:
                 self.log(f"vram: arena write skipped ({exc})")
             return
@@ -251,6 +256,7 @@ class BlockCache:
                 old_key, old_tensor = self._hot.popitem(last=False)
                 self._hot_bytes -= old_tensor.numel() * old_tensor.element_size()
                 self.stats.evictions += 1
+                self._prefetched.discard(old_key)
                 self._arena_put(old_key, old_tensor)
                 del old_tensor
         if self.budget_bytes and size > self.budget_bytes:
@@ -262,13 +268,15 @@ class BlockCache:
 
     def get(self, module_path: str, start: int, stop: int):
         key = BlockKey(module_path, int(start), int(stop))
+        if not self.enabled:
+            return self.dequantize(module_path, key.start, key.stop)
         with self._lock:
             tensor = self._hot.get(key)
             if tensor is not None:
                 self._hot.move_to_end(key)
                 self.stats.ram_hits += 1
-                if key in self._pending:
-                    self._pending.discard(key)
+                if key in self._prefetched:
+                    self._prefetched.discard(key)
                     self.stats.prefetch_used += 1
                 return tensor
             tensor = self._arena_get(key)
@@ -289,7 +297,7 @@ class BlockCache:
         return [BlockKey(module_path, start, min(start + step, out_features)) for start in range(0, out_features, step)]
 
     def prefetch(self, keys: list[BlockKey]) -> None:
-        if not self.enabled_prefetch or self._closed:
+        if not self.enabled or not self.enabled_prefetch or self._closed:
             return
         with self._lock:
             for key in keys:
@@ -318,6 +326,7 @@ class BlockCache:
                     self.stats.dequant_calls += 1
                     self.stats.dequant_seconds += time.time() - started
                     self._store_hot(key, tensor)
+                    self._prefetched.add(key)
             except Exception:  # noqa: BLE001 - prefetch must never kill a run
                 with self._lock:
                     self._pending.discard(key)
@@ -392,11 +401,20 @@ def budget_from_available(psutil_module=None) -> int:
 
 
 def resolve_budget(vram_gb: float | None, mode: str = "auto") -> int:
+    """Hot-tier budget in bytes; ``0`` disables the cache.
+
+    Measured on the test machine, re-dequantizing a block is *cheaper* than copying it out of the
+    disk arena (see docs/evidence/v6_vram.md), so the cache is opt-in: it only runs when the
+    caller asks for a size explicitly. ``mode="auto"`` therefore means "off unless a size was
+    given", and ``mode="ram"`` keeps the old heuristic for experiments.
+    """
     if mode == "off" or (vram_gb is not None and vram_gb <= 0):
         return 0
     if vram_gb:
         return int(float(vram_gb) * 1024**3)
-    return budget_from_available()
+    if mode == "ram":
+        return budget_from_available()
+    return 0
 
 
 def clear_arena(arena_dir: str | Path) -> dict:

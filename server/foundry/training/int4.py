@@ -699,7 +699,8 @@ def _train_int4(
                 arena_dir=arena_dir,
                 arena_bytes=int(DEFAULT_ARENA_GB * 1024**3),
                 block_rows=int4_block_size(),
-                prefetch=True,
+                # measured: prefetching the very next block mostly duplicates work
+                prefetch=os.environ.get("FOUNDRY_VRAM_PREFETCH", "0") == "1",
                 log=log,
             )
             if holders is not None:
