@@ -46,6 +46,11 @@ not advertised.
   was removed.
 - **The browser panel was unreachable.** `Playground` returned early when no model was loaded, so
   the card only existed after starting the native runtime — exactly backwards for a fallback UI.
+- **`GET /machine/profile` 404'd on a fresh install.** "Not scanned yet" is a state, not a missing
+  resource; Chromium logs every 404 resource load as a console error, so a clean install opened the
+  console with a red line. It now answers `200 {"profile": null, "budget": null, "scanned": false}`
+  (matching `/machine/budget`, which already tolerated an empty profile), and the new E2E test —
+  which asserts zero console errors — is what surfaced it.
 
 ### Measured (headless Chromium, this machine, 2026-11-02)
 
@@ -63,7 +68,8 @@ stress test prints that instead of a number.
 
 ### Tests
 
-- Backend 268 passed (4 new: inventory, honest empty state, path traversal, serve).
+- Backend 269 passed (5 new: inventory, honest empty state, path traversal, serve, empty machine
+  profile).
 - Frontend 17 passed (10 new: limits, ceilings, refusals, `formatBytes`).
 - E2E 10 passed (1 new: panel renders live capabilities and refuses without a model).
 

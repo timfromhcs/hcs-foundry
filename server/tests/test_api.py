@@ -31,6 +31,17 @@ def test_machine_budget_without_profile(api):
     assert "notes" in body
 
 
+def test_machine_profile_without_scan_is_an_empty_state(api):
+    # "not scanned yet" must not be a 404: the browser logs a 404 resource load as a console
+    # error on every fresh install, and the UI already renders a scan prompt for a null profile.
+    response = api.get("/api/v1/machine/profile")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"] is None
+    assert body["budget"] is None
+    assert body["scanned"] is False
+
+
 def test_models_list_empty(api):
     body = api.get("/api/v1/models").json()
     assert body["models"] == []

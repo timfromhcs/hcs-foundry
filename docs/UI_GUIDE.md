@@ -53,6 +53,12 @@ disk store, a **Merge → GGUF** button that continues the chain as a job.
 The loaded model, a prompt box, sampling controls, streaming output with a cancel button, and
 live metrics (TTFT, tokens/s, context used). If nothing is loaded it says so and links to Models.
 
+Below that (with or without a loaded GGUF model) sits the **browser runtime** card: live WebGPU /
+WASM / SIMD / threads / cores / memory chips, the computed safe limits with a reason for each
+number, and — if an ONNX export exists under `data/browser-models/<id>/` — a load and generate path
+that runs entirely in the tab, served by the local service rather than a CDN. A model above the
+limit is refused with numbers. See [BROWSER_RUNTIME.md](BROWSER_RUNTIME.md).
+
 ## Keyboard and accessibility
 
 - `Ctrl/⌘ + K` opens the command palette (routes, models, actions).

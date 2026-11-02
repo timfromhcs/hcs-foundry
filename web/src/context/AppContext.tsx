@@ -142,8 +142,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshMachine = useCallback(async () => {
     try {
       const data = await api.machineProfile()
-      setProfile(data.profile)
-      setBudget(data.budget)
+      setProfile(data.profile ?? null)
+      setBudget(data.budget ?? null)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setProfile(null)

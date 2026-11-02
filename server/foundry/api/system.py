@@ -159,8 +159,10 @@ def machine_profile(request: Request):
     state = _state(request)
     profile = state.latest_profile()
     if profile is None:
-        raise HTTPException(status_code=404, detail={"code": "no_profile", "message": "Run a machine scan first."})
-    return {"profile": profile, "budget": compute_budget(profile, state.settings).to_public()}
+        # "not scanned yet" is a state, not a missing resource: a 404 makes the browser log a
+        # console error on every fresh install. /machine/budget already tolerates an empty profile.
+        return {"profile": None, "budget": None, "scanned": False}
+    return {"profile": profile, "budget": compute_budget(profile, state.settings).to_public(), "scanned": True}
 
 
 @router.get("/machine/budget")

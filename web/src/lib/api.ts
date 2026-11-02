@@ -179,7 +179,7 @@ class ApiClient {
   }
 
   machineProfile() {
-    return this.request<{ profile: MachineProfile; budget: Budget }>('/machine/profile')
+    return this.request<{ profile: MachineProfile | null; budget: Budget | null; scanned: boolean }>('/machine/profile')
   }
 
   budget() {
