@@ -65,8 +65,9 @@ cd web && npm run build && npx playwright test   # 9 passed (service on :8770)
 
 | Item | Value |
 |---|---|
-| Commit | see `git log -1` on `main` |
+| Commit | `11f5905` on `main` |
 | Tag | `v5.0.0` |
-| CI | green (backend, frontend, Playwright) |
-| GitHub Release | <https://github.com/timfromhcs/hcs-foundry/releases/tag/v5.0.0> |
+| CI | run `41409045475` — green (backend, frontend, Playwright) |
+| GitHub Release | <https://github.com/timfromhcs/hcs-foundry/releases/tag/v5.0.0> (Latest) |
+| Windows EXE | `HCSFoundry.exe`, 384,044,000 bytes, built from this commit, `sha256:b15b8dc017dc…` |
 | Landing page | <https://hcs-foundry-site.vercel.app> · pair section <https://hcs-foundry-site.vercel.app/#pair> |
