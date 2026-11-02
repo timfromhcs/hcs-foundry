@@ -39,8 +39,8 @@ otherwise.
 
 ## 2. Phases
 
-**Progress (2026-11-02, after v7.3.0):** S1, S2 and S3 are implemented and green
-(309 backend / 17 frontend / 10 E2E). S4–S7 remain open; A4/A5/A6 still need measured runs.
+**Progress (2026-11-02, after v7.5.0):** S1–S4 are implemented and green (325 backend / 17
+frontend / 11 E2E). S5, S6 and S7 remain open; A4/A5/A6 still need measured runs.
 
 
 ### S1 — Close the conformance matrix (M)

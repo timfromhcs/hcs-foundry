@@ -2,6 +2,44 @@
 
 All notable changes to HCS Foundry.
 
+## [7.5.0] — 2026-11-02
+
+RFT lands: rejection sampling over verified task generators, with the same spec/registry/manifest
+contract as every other trainer. Still no quality claim.
+
+### Added
+
+- **`rft/fp32_lora` trainer** (`foundry/train/adapters/rft.py`). It samples the base model on
+  **train-split** generated tasks, keeps only answers a deterministic verifier accepts, registers the
+  accepted pairs as a frozen synthetic dataset, and trains LoRA SFT on them.
+  Manifest extras record `accepted_count`, `rejected_count`, `rejection_reasons`, `seed`,
+  `generator_version`, `verifier_version`, `accepted_dataset_hash` and `used_test_items`.
+- Bounded work: `samples_per_task`, `min_accepted`, `max_candidates` are checked in preflight, so
+  `train plan` / `POST /training/plan` show the cost before a model is loaded.
+
+### Refused, on purpose
+
+- **A template that appears in two splits** blocks the run before sampling and is refused again in
+  `run()`.
+- **Zero accepted candidates** writes `manifest.json` with `status: failed` and raises
+  `TrainingError` — it is never reported as a completed run.
+- **A candidate plan larger than the budget** is refused instead of silently truncating.
+
+### Verified
+
+- 325 backend tests (6 new for RFT), 17 frontend, 11 E2E, build green.
+- On the tiny fixture the matrix reports C1/C2/C3/C7/C8/C9/C10 `passed` and C4/C5/C6
+  `not_applicable` with reasons; the adapter reloads and produces a finite forward pass.
+
+### Not claimed
+
+- **No measured improvement.** The positive path is proven with an injected oracle sampler; the
+  default sampler is untested on a real model.
+- **The default sampler is not governed** — it loads a second copy of the base model, so 4B use
+  needs the runtime/memory governor first.
+- **V8-S5 (measured flywheel) has not run.** The next action is recorded in
+  `docs/progress/NEXT_ACTION.md`.
+
 ## [7.4.0] — 2026-11-02
 
 Wear-aware and opt-in: training stops writing state nothing reads, the update check is off until the

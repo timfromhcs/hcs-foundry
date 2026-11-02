@@ -107,12 +107,47 @@ base checkpoint → SFT/LoRA → adapter → validation → optional merge → c
 
 Training runs are jobs: they have progress, events, cancellation and an output payload. Checkpoint retention is part of the run config; the last three and the best checkpoint are kept. A source model is never overwritten.
 
+Checkpoints are **weights-only** (`save_only_model`): no optimizer, scheduler or RNG state is written, because no trainer has a resume path that would read it. The save interval is floored at 10 steps, and every run records `extras.disk_bytes_written`. See `docs/DISK_LIGHT.md`.
+
+## RFT — rejection sampling over verified tasks (v7.5)
+
+`method: rft` samples the base model on **train-split** generated tasks, keeps only answers that a
+deterministic verifier accepts, and trains SFT on the accepted pairs:
+
+```yaml
+method: rft
+backend: fp32_lora
+method_args:
+  tasks_path: data/exports/tasks.jsonl   # foundry tasks generate ...
+  samples_per_task: 1
+  min_accepted: 4
+  max_candidates: 128
+  seed: 0
+```
+
+What makes it trustworthy:
+
+- **No test template is ever sampled.** The task file must have isolated splits; a template that
+  appears in two splits refuses the run before a model is loaded (`TrainingError`).
+- **Zero accepted candidates is a failure**, not an empty success: the run writes
+  `manifest.json` with `status: failed` and raises.
+- The accepted pairs become a frozen, synthetic dataset (`provider: synthetic`, rights confirmed)
+  that the existing SFT path trains on — the counts, seed, generator/verifier versions, dataset hash
+  and rejection reasons are all in the manifest extras.
+- The candidate budget is a preflight blocker, so `plan` shows the work before any sampling.
+
+Tested in `server/tests/train/test_rft.py`: the matrix passes with accepted samples, a zero-accept
+run fails, a plausible wrong answer is rejected, leaked templates are refused, and the budget is
+enforced.
+
 ## What is deliberately absent
 
 - DPO/GRPO: no preference-pair pipeline is shipped yet, so the method is blocked with a precise reason.
 - Full fine-tuning: not offered on shared-memory hardware.
 - Distributed training.
 - Automatic promotion of a trained adapter: it must pass the same benchmark and upgrade gates as any other candidate.
+- **No measured quality claim for RFT.** The adapter machinery is tested; whether it improves a model
+  is exactly what V8-S5 has to measure.
 
 ## LoRA/SFT backend (v2)
 
