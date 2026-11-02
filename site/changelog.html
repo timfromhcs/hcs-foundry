@@ -49,6 +49,31 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2
 <h1>Changelog</h1>
 <p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
 <p>All notable changes to HCS Foundry.</p>
+<h2>[7.5.0] — 2026-11-02</h2>
+<p>RFT lands: rejection sampling over verified task generators, with the same spec/registry/manifest</p>
+<p>contract as every other trainer. Still no quality claim.</p>
+<h3>Added</h3>
+<ul>
+<li><strong><code>rft/fp32_lora</code> trainer</strong> (<code>foundry/train/adapters/rft.py</code>). It samples the base model on <strong>train-split</strong> generated tasks, keeps only answers a deterministic verifier accepts, registers the accepted pairs as a frozen synthetic dataset, and trains LoRA SFT on them. Manifest extras record <code>accepted_count</code>, <code>rejected_count</code>, <code>rejection_reasons</code>, <code>seed</code>, <code>generator_version</code>, <code>verifier_version</code>, <code>accepted_dataset_hash</code> and <code>used_test_items</code>.</li>
+<li>Bounded work: <code>samples_per_task</code>, <code>min_accepted</code>, <code>max_candidates</code> are checked in preflight, so <code>train plan</code> / <code>POST /training/plan</code> show the cost before a model is loaded.</li>
+</ul>
+<h3>Refused, on purpose</h3>
+<ul>
+<li><strong>A template that appears in two splits</strong> blocks the run before sampling and is refused again in <code>run()</code>.</li>
+<li><strong>Zero accepted candidates</strong> writes <code>manifest.json</code> with <code>status: failed</code> and raises <code>TrainingError</code> — it is never reported as a completed run.</li>
+<li><strong>A candidate plan larger than the budget</strong> is refused instead of silently truncating.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>325 backend tests (6 new for RFT), 17 frontend, 11 E2E, build green.</li>
+<li>On the tiny fixture the matrix reports C1/C2/C3/C7/C8/C9/C10 <code>passed</code> and C4/C5/C6 <code>not_applicable</code> with reasons; the adapter reloads and produces a finite forward pass.</li>
+</ul>
+<h3>Not claimed</h3>
+<ul>
+<li><strong>No measured improvement.</strong> The positive path is proven with an injected oracle sampler; the default sampler is untested on a real model.</li>
+<li><strong>The default sampler is not governed</strong> — it loads a second copy of the base model, so 4B use needs the runtime/memory governor first.</li>
+<li><strong>V8-S5 (measured flywheel) has not run.</strong> The next action is recorded in <code>docs/progress/NEXT_ACTION.md</code>.</li>
+</ul>
 <h2>[7.4.0] — 2026-11-02</h2>
 <p>Wear-aware and opt-in: training stops writing state nothing reads, the update check is off until the</p>
 <p>user turns it on, and the browser panel announces what it is doing.</p>
