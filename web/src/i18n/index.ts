@@ -31,7 +31,9 @@ void i18n.use(initReactI18next).init({
   },
   lng: initial,
   fallbackLng: 'en',
-  interpolation: { escapeValue: false },
+  // The dictionaries use single-brace placeholders ({count}, {model}); i18next's default is
+  // double braces, and a mismatch renders the placeholder literally instead of failing loudly.
+  interpolation: { escapeValue: false, prefix: '{', suffix: '}' },
   returnNull: false,
 })
 

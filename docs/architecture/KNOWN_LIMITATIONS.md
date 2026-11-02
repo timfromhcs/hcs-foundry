@@ -114,3 +114,16 @@ marked as untested.
 
 31. **de/en/fr are complete for all shipped UI strings.** Additional locales are
     architecture-ready but not translated.
+
+## Browser runtime
+
+32. **The in-tab runtime is not llama.cpp.** No Vulkan, no GGUF, no KV-cache quantization
+    beyond ONNX Runtime, and no 2–4B models. It exists for small-model checks and as a
+    fallback when the native service is not running.
+33. **Browser throughput is unmeasured.** The capability detection, the limits and the
+    allocation ceiling are measured (`web/scripts/browser_stress.mjs`), but no ONNX export was
+    installed, so no tokens/s number from a browser generation exists yet. The stress test
+    prints `skipped` with the reason instead of an estimate.
+34. **The WASM budget is conservative on purpose.** A tab in this Chromium was granted
+    1536 MiB by a bounded allocation probe, so models above 1.25 GB are refused rather than
+    attempted; a larger model may work on another machine, but it is not promised.

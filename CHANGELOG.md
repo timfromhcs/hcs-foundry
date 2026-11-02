@@ -2,6 +2,71 @@
 
 All notable changes to HCS Foundry.
 
+## [7.2.0] — 2026-11-02
+
+Browser runtime release: a small model can now run **inside the tab** (WebGPU/WASM via
+Transformers.js), fed from the local service instead of a CDN. Detection and limits are measured,
+not advertised.
+
+### Added
+
+- **Browser runtime panel** in *Playground* (`web/src/components/BrowserRuntimePanel.tsx`). It shows
+  live capability chips (WebGPU adapter, WASM SIMD, threads, cores, device memory, secure context),
+  the computed safe limits with a reason for every number, the browser-model inventory, and a
+  load/generate path with streaming output and tok/s. It is rendered with and without a loaded GGUF
+  model.
+- **Capability detection** (`web/src/lib/browserRuntime.ts`): `navigator.gpu.requestAdapter()` plus
+  `maxBufferSize`/`maxStorageBufferBindingSize`, validated WebAssembly module probes for SIMD and
+  threads, `SharedArrayBuffer`, `crossOriginIsolated`, `deviceMemory`, `hardwareConcurrency`,
+  `navigator.storage.estimate()`.
+- **Safe limits as rules, not magic values**: WebGPU → `q4`, context 2048, model ≤ 3 GB;
+  WASM → `q8` (fp32 without SIMD), context 512, model ≤ **1.25 GB**; threads only when the page is
+  cross-origin isolated. Models above the limit are refused with numbers instead of attempting a
+  load that would kill the tab.
+- **Local model serving** (`server/foundry/browser_runtime.py`): `GET /api/v1/browser/runtime`
+  (inventory + readiness, naming missing files) and
+  `GET /api/v1/browser/models/{id}/{path}` (one file, path-traversal checked, `no-store` +
+  `nosniff`). Transformers.js runs with `allowRemoteModels = false`, so nothing is fetched from the
+  internet at runtime.
+- **Stress test** `web/scripts/browser_stress.mjs`: pairs with the service, reads the panel, probes
+  how much memory the tab is actually granted, optionally runs a real generation, and exits non-zero
+  when the panel errors or claims a backend it cannot deliver.
+- `docs/BROWSER_RUNTIME.md` with the measured table and an explicit "not parity / not measured"
+  section.
+
+### Fixed
+
+- **i18n placeholders never interpolated.** All three dictionaries use single braces (`{count}`),
+  but i18next was configured with its default double-brace prefix, so six keys — including the
+  pre-existing `overview.jobs_running` — rendered `{...}` literally. The interpolation prefix/suffix
+  is now explicit and `locales.test.ts` keeps the placeholder sets aligned.
+- **WASM SIMD was reported as unavailable in every browser.** The probe module was not valid
+  WebAssembly (`WebAssembly.validate` returned false), so the panel always claimed "no SIMD". The
+  probe is now a valid minimal module, verified in Node and Chromium; the unused relaxed-SIMD probe
+  was removed.
+- **The browser panel was unreachable.** `Playground` returned early when no model was loaded, so
+  the card only existed after starting the native runtime — exactly backwards for a fallback UI.
+
+### Measured (headless Chromium, this machine, 2026-11-02)
+
+```
+backend      WASM (no adapter granted to the headless browser)
+SIMD         yes · threads no (page is not cross-origin isolated) · 16 cores · 16 GB device memory
+limits       model ≤ 1.25 GB · context 512 · dtype q8 · 1 thread
+allocation   tab granted 1536 MiB (bounded probe, released immediately)
+inference    skipped — no ONNX model installed under data/browser-models/
+console      no errors
+```
+
+Browser token throughput is **not measured**: no ONNX export was installed in this session, and the
+stress test prints that instead of a number.
+
+### Tests
+
+- Backend 268 passed (4 new: inventory, honest empty state, path traversal, serve).
+- Frontend 17 passed (10 new: limits, ceilings, refusals, `formatBytes`).
+- E2E 10 passed (1 new: panel renders live capabilities and refuses without a model).
+
 ## [7.1.0] — 2026-11-02
 
 Trust release: CI now tests the trainers, and the promotion gate uses statistics instead of a

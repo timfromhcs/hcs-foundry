@@ -394,6 +394,40 @@ def training_playbook(request: Request):
     return {"entries": playbook.entries(state.db)}
 
 
+# ---------------------------------------------------------------------------
+# Browser runtime (WebGPU / WASM models served from disk)
+# ---------------------------------------------------------------------------
+
+@router.get("/browser/runtime")
+def browser_runtime(request: Request):
+    """What the local service can offer the browser runtime: model folders on disk."""
+    from ..browser_runtime import models_root, summary
+
+    state = _state(request)
+    return summary(models_root(state.settings.data_dir))
+
+
+@router.get("/browser/models/{model_id}/{file_path:path}")
+def browser_model_file(request: Request, model_id: str, file_path: str):
+    """Serve one file of a browser-model directory (loopback only, path-checked)."""
+    from ..browser_runtime import content_type, models_root, resolve_file
+
+    state = _state(request)
+    try:
+        target = resolve_file(models_root(state.settings.data_dir), model_id, file_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_model_id", "message": str(exc)})
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": "model file not found"})
+    from fastapi.responses import FileResponse
+
+    return FileResponse(
+        str(target),
+        media_type=content_type(target),
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/training/vram")
 def training_vram(request: Request):
     from ..training.vram import budget_from_available

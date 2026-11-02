@@ -366,6 +366,16 @@ class ApiClient {
     return this.request<{ deleted: string }>(`/datasets/${datasetId}`, { method: 'DELETE' })
   }
 
+  browserRuntime() {
+    return this.request<{ models: Array<Record<string, unknown>>; hint: string; ready: number; total: number; exists: boolean }>(
+      '/browser/runtime',
+    )
+  }
+
+  browserModelUrl(modelId: string, file: string) {
+    return `${BASE}/browser/models/${encodeURIComponent(modelId)}/${file}`
+  }
+
   // -- identity ----------------------------------------------------------
   identityDraft(prompt: string, name?: string, languages?: string[]) {
     return this.request<{ id: string; card: Record<string, unknown>; status: string }>('/identity/drafts', {

@@ -311,6 +311,10 @@ fine-tuning, "fine-tuning matters more than base choice"); Turing Post / PremAI 
 |---|---|---|
 | **v7.1.0** (trust release) | Phases 0–3: honest CI, unified trainer contract, unified eval + stats gate | PG-1 |
 | **v7.2.0** (the loop) | Phases 4–6: generators, flywheel, first measured result, on-policy distill | PG-2 |
+
+> 2026-11-02 deviation: v7.2.0 shipped the **browser runtime** (WebGPU/WASM, detection, safe
+> limits, stress test) instead of phases 4–6, on explicit user request. Phases 4–6 remain open and
+> move to the next gate. See `CHANGELOG.md` 7.2.0 and `docs/BROWSER_RUNTIME.md`.
 | **v8.0.0** (stable) | Phases 7–10: engine experiments, quant/KV gates, MCP/UI/docs, release | PG-3 |
 
 Tag only at a push gate. Interim commits stay local (or on a local branch) until the gate passes.
@@ -875,7 +879,7 @@ equirements-train-lock.txt; FOUNDRY_REQUIRE_TRAIN=1 + 	ests/conftest.py guard + 
 | P4 generators | not started | multi-day item; see blockers |
 | P5 flywheel + result | open | | |
 | P6 on-policy distill | open | | |
-| PG-2 v7.2.0 | open | | |
+| PG-2 v7.2.0 | **done** | browser runtime (WebGPU/WASM) + detection/limits + stress test; 268 backend / 17 frontend / 10 E2E green; docs/BROWSER_RUNTIME.md | browser throughput still unmeasured (no ONNX model installed); post-session LoRA merge still open |
 | P7 engine experiments | open | | |
 | P8 quant/KV gates | open | | |
 | P9 MCP/UI | open | | |

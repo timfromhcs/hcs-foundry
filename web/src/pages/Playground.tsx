@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext'
 import { api } from '../lib/api'
 import { formatNumber } from '../lib/format'
 import { Alert, Badge, Button, Card, EmptyState, Field, Select, Textarea } from '../components/ui'
+import { BrowserRuntimePanel } from '../components/BrowserRuntimePanel'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -129,6 +130,7 @@ export function Playground() {
             {t('play.error_no_model')}
           </EmptyState>
         </Card>
+        <BrowserRuntimePanel />
       </>
     )
   }
@@ -235,6 +237,8 @@ export function Playground() {
           </div>
         </div>
       </Card>
+
+      <BrowserRuntimePanel />
 
       <Alert tone="info">{t('settings.privacy_text')}</Alert>
     </>

@@ -12,7 +12,7 @@ and agentic tasks — all on one machine, with no telemetry and no cloud fallbac
 
 [![CI](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/timfromhcs/hcs-foundry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-7.1.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
+[![Version](https://img.shields.io/badge/version-7.2.0-8b8cf9.svg)](https://github.com/timfromhcs/hcs-foundry/releases)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776ab.svg)](https://www.python.org)
 [![Node](https://img.shields.io/badge/node-20%2B-339933.svg)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-6b7785.svg)](#requirements)
@@ -81,6 +81,7 @@ Three rules drive the code:
 | **Upgrade Lab** | Failure taxonomy → candidate → re-eval → holdout guard → human gate → rollback | ✅ |
 | **Agent** | Visible plans, typed allowlisted tools, approval queue, bounded repair | ✅ |
 | **MCP server** | 9 typed tools over stdio for any agent client; path allowlist, no shell | ✅ |
+| **Browser runtime** | WebGPU/WASM inference in the tab via Transformers.js, served from the local service (no CDN), capability detection and measured safe limits | ⚠️ detection verified, throughput unmeasured |
 | **UI** | React 18, dark/light, de/en/fr, command palette, mobile nav, reduced motion | ✅ |
 
 ## Learn it
@@ -91,6 +92,7 @@ Three rules drive the code:
 | [docs/UI_GUIDE.md](docs/UI_GUIDE.md) | What every screen answers, the keyboard model, and the honest states you will see |
 | [docs/MCP.md](docs/MCP.md) | Drive the lab from an agent: nine typed tools, JSON-RPC over stdio, no shell tool |
 | [docs/CLI.md](docs/CLI.md) | Every command group, flag and exit code |
+| [docs/BROWSER_RUNTIME.md](docs/BROWSER_RUNTIME.md) | In-tab WebGPU/WASM: what is detected, the safe limits, and where parity ends |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Service, jobs, storage, training stack, security boundary |
 | [CHANGELOG.md](CHANGELOG.md) | What shipped in each release — including what did not work and why |
 
@@ -315,6 +317,10 @@ Details: [docs/SECURITY.md](docs/SECURITY.md) · [docs/DATA_AND_PRIVACY.md](docs
   reports `not_run` otherwise.
 - **Disk offload costs throughput** — the first pass reads weights from disk; the OS page
   cache is the RAM buffer, not a residency guarantee.
+- **The browser runtime is not a second llama.cpp.** It runs small ONNX models in the tab
+  (no Vulkan, no GGUF, ~1.25 GB WASM ceiling measured on this machine) and its token
+  throughput is **not measured** yet: no ONNX export was installed
+  ([details](docs/BROWSER_RUNTIME.md)).
 
 The full list is in [docs/architecture/KNOWN_LIMITATIONS.md](docs/architecture/KNOWN_LIMITATIONS.md).
 
