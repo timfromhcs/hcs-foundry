@@ -49,6 +49,29 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--text-2
 <h1>Changelog</h1>
 <p class="lead">Every release with what shipped, what broke and what was deliberately not done.</p>
 <p>All notable changes to HCS Foundry.</p>
+<h2>[7.1.0] — 2026-11-02</h2>
+<p>Trust release: CI now tests the trainers, and the promotion gate uses statistics instead of a</p>
+<p>fixed delta.</p>
+<h3>Added</h3>
+<ul>
+<li><strong><code>foundry/train/stats.py</code></strong> — <code>wilson_ci</code>, <code>paired_compare</code> (exact McNemar for binary outcomes, clustered bootstrap otherwise), <code>required_n</code> (power planning), <code>pass_at_k</code>, <code>summarize</code>. 11 known-answer tests (<code>tests/test_stats.py</code>).</li>
+<li><strong>CI honesty guard</strong> — <code>tests/conftest.py</code> fails when <code>FOUNDRY_REQUIRE_TRAIN=1</code> and a training test module was collected zero times, so a missing ML stack can no longer look like &quot;green&quot;.</li>
+<li><strong><code>server/requirements-lock.txt</code> / <code>requirements-train-lock.txt</code></strong> compiled for the CI interpreter, constrained by <code>server/constraints.txt</code> to the versions the evidence was produced with. CI installs from the lock.</li>
+</ul>
+<h3>Changed (breaking for the Upgrade Lab)</h3>
+<ul>
+<li><strong><code>upgrade.promote()</code> no longer promotes on <code>delta ≥ threshold</code>.</strong> It requires a paired result with <code>n ≥ 30</code>, a 95 % CI lower bound &gt; 0, a practical minimum effect (3 pp default), no critical regression, an unchanged holdout and a human approver. <code>threshold=</code> is kept as a deprecated alias for <code>min_effect</code>. A six-case suite is now refused as *underpowered* — <code>test_upgrade.py</code> proves both the refusal and the promoted path.</li>
+<li><code>web/dist/**</code> and <code>web/tsconfig.tsbuildinfo</code> are no longer tracked (build output); <code>scripts/build_exe.ps1</code> builds the SPA first and <code>web/vercel.json</code> builds from source.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li><code>KNOWN_LIMITATIONS.md</code> header and items 15/24 corrected (it still said 4.1.0 and &quot;only 0.6B&quot;); <code>V7_PLAN.md</code> progress log set to the real status.</li>
+</ul>
+<h3>Verified</h3>
+<ul>
+<li>233 backend tests locally, 0 skips with <code>FOUNDRY_REQUIRE_TRAIN=1</code>.</li>
+<li>Baseline evidence: <code>docs/evidence/v8_baseline.md</code> (versions, free RAM, durations).</li>
+</ul>
 <h2>[7.0.0] — 2026-11-02</h2>
 <p>This release answers four asks: <strong>why is the 4B slow</strong>, <strong>run it locally with commands and MCP</strong>,</p>
 <p><strong>a UI that shows what happens</strong>, <strong>a site and docs that are a product surface</strong> — plus branding.</p>
