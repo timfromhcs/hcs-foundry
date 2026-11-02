@@ -271,6 +271,7 @@ def run_dpo(
         "steps": steps,
         "beta": beta,
         "loss_first": round(losses[0], 6) if losses else None,
+        "losses": [round(value, 6) for value in losses],
         "loss_last": round(losses[-1], 6) if losses else None,
         "loss_improved": bool(losses and losses[-1] < losses[0]),
         "duration_seconds": round(time.time() - started, 2),

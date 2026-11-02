@@ -165,6 +165,7 @@ def run_unified(
             "steps": manifest.get("steps"),
             "loss_first": manifest.get("loss_first"),
             "loss_last": manifest.get("loss_last"),
+            "losses": manifest.get("losses"),
             "best_eval_loss": manifest.get("best_eval_loss"),
             "peak_rss_mb": (manifest.get("memory") or {}).get("peak_rss_mb"),
             "offload": manifest.get("offload"),

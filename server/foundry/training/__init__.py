@@ -196,6 +196,7 @@ def run_smoke(progress: Callable[[float, str], None] | None = None) -> SmokeResu
         metrics={
             "steps": steps,
             "loss_first": round(losses[0], 6),
+            "losses": [round(value, 6) for value in losses],
             "loss_last": round(final_loss, 6),
             "max_parameter_delta": max_delta,
             "device": "cpu" if not torch.cuda.is_available() else "cuda",

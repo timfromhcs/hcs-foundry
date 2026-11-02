@@ -505,6 +505,7 @@ def train_sft(
         "duration_seconds": round(duration, 2),
         "loss_first": round(losses[0], 6),
         "loss_last": round(losses[-1], 6),
+        "losses": [round(value, 6) for value in losses],
         "loss_improved": losses[-1] < losses[0],
         "tokens_per_second_estimate": round(
             (int(trainer.state.global_step) * config.micro_batch * config.grad_accum * config.max_seq_len) / max(0.001, duration),

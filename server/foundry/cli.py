@@ -879,13 +879,7 @@ def cmd_train_doctor(args) -> int:
     """Show which trainers are registered and, with --model/--dataset, run the matrix."""
     import importlib.util
 
-    from .train.conformance import (
-        check_manifest_valid,
-        check_preflight_honesty,
-        check_real_optimisation,
-        check_source_untouched,
-        hash_model_files,
-    )
+    from .train.conformance import run_matrix
     from .train.base import TrainContext
     from .train.registry import get_trainer, list_trainers, load_builtin_trainers
     from .train.spec import Method, Backend, Profile, spec_for_profile
@@ -904,13 +898,14 @@ def cmd_train_doctor(args) -> int:
             if method.value == "distill":
                 report["runs"].append({"trainer": f"{method.value}/{backend.value}", "skipped": "needs a live teacher"})
                 continue
+            # three steps so C3 (learning) can judge instead of saying "not_applicable"
             spec = spec_for_profile(
                 method=method,
                 backend=backend,
                 model_path=args.model,
                 dataset_id=args.dataset,
                 profile=Profile.CI_TINY,
-                hyper={"seq_len": 24, "max_steps": 1, "lora_r": 2, "lora_alpha": 4, "lr": 1e-3},
+                hyper={"seq_len": 24, "max_steps": 3, "lora_r": 2, "lora_alpha": 4, "lr": 5e-2},
                 method_args={"eval_every": 0},
             )
             trainer = get_trainer(spec)
@@ -919,22 +914,11 @@ def cmd_train_doctor(args) -> int:
                 db=state.db,
                 settings=state.settings,
             )
-            before = hash_model_files(spec)
-            checks = [check_preflight_honesty(trainer, spec, ctx)]
-            if not trainer.preflight(spec, ctx).ok:
-                report["runs"].append({
-                    "trainer": f"{method.value}/{backend.value}",
-                    "checks": [check.to_public() for check in checks],
-                    "blocked": trainer.preflight(spec, ctx).blockers,
-                })
-                continue
-            result = trainer.run(spec, ctx)
-            checks.append(check_manifest_valid(result.manifest))
-            checks.append(check_source_untouched(trainer, spec, ctx, before))
-            checks.append(check_real_optimisation(result.manifest))
+            matrix = run_matrix(trainer, spec, ctx)
             report["runs"].append({
                 "trainer": f"{method.value}/{backend.value}",
-                "checks": [check.to_public() for check in checks],
+                "ok": matrix.ok,
+                "checks": [check.to_public() for check in matrix.checks],
             })
 
     failed = [run for run in report["runs"] if any(c["status"] == "failed" for c in run.get("checks", []))]
@@ -953,6 +937,81 @@ def cmd_train_doctor(args) -> int:
         lines.append(f"  {run['trainer']}: {statuses}")
     _print(report, args.json, "\n".join(lines))
     return 0 if report["ok"] else 1
+
+
+def cmd_tasks(args) -> int:
+    """Generate verifiable task data, or check that a directory is ready for a paired claim."""
+    from .tasks import generators as gen
+
+    if args.tasks_command == "generate":
+        families = list(gen.FAMILIES) if args.family == "all" else [args.family]
+        if any(family not in gen.FAMILIES for family in families):
+            return _fail(f"unknown family: {args.family}")
+        items = []
+        for family in families:
+            items.extend(gen.generate(family, seed=args.seed, per_template=args.per_template))
+        report = gen.readiness(items)
+        if args.out:
+            written = gen.to_jsonl(args.out, items)
+        else:
+            written = 0
+        payload = {
+            "families": families,
+            "seed": args.seed,
+            "items": len(items),
+            "written": written,
+            "out": args.out,
+            "readiness": report.to_public(),
+            "splits": {split: len(gen.by_split(items, split)) for split in gen.SPLITS},
+        }
+        _print(
+            payload,
+            args.json,
+            "\n".join(
+                [
+                    f"generated {len(items)} item(s) from {', '.join(families)} (seed {args.seed})",
+                    "splits    " + ", ".join(f"{split}={count}" for split, count in payload["splits"].items()),
+                    "readiness " + ("ok" if report.ok else "BLOCKED"),
+                    *[f"  blocker {item}" for item in report.blockers],
+                    *([f"written   {written} -> {args.out}"] if args.out else []),
+                ]
+            ),
+        )
+        return 0 if report.ok else 1
+
+    from pathlib import Path as _Path
+    import json as _json
+
+    items = []
+    path = _Path(args.path)
+    if not path.is_file():
+        return _fail(f"not a file: {path}")
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            items.append(gen.TaskItem(**_json.loads(line)))
+    report = gen.readiness(items)
+    leaks = gen.check_template_isolation(items)
+    payload = {
+        "path": str(path),
+        "items": len(items),
+        "readiness": report.to_public(),
+        "template_leaks": leaks,
+        "splits": {split: len(gen.by_split(items, split)) for split in gen.SPLITS},
+    }
+    _print(
+        payload,
+        args.json,
+        "\n".join(
+            [
+                f"{len(items)} item(s) in {path}",
+                "splits    " + ", ".join(f"{split}={count}" for split, count in payload["splits"].items()),
+                "readiness " + ("ok" if report.ok else "BLOCKED"),
+                *[f"  blocker {item}" for item in report.blockers],
+                *([f"  leak {item}" for item in leaks] if leaks else []),
+            ]
+        ),
+    )
+    return 0 if report.ok else 1
 
 
 def cmd_run(args) -> int:
@@ -1428,6 +1487,24 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
     mcp_serve = mcp_sub.add_parser("serve", help="serve MCP over stdin/stdout")
     mcp_serve.set_defaults(func=cmd_mcp)
+
+    tasks = sub.add_parser("tasks", help="verifiable task generators (data with answers)")
+    tasks_sub = tasks.add_subparsers(dest="tasks_command", required=True)
+    t_gen = tasks_sub.add_parser("generate", help="generate deterministic task items as JSONL")
+    t_gen.add_argument(
+        "--family",
+        default="all",
+        choices=["all", *sorted(__import__("foundry.tasks.generators", fromlist=["FAMILIES"]).FAMILIES)],
+    )
+    t_gen.add_argument("--seed", type=int, default=0)
+    t_gen.add_argument("--per-template", type=int, default=10)
+    t_gen.add_argument("--out", default=None, help="write JSONL to this path")
+    t_gen.add_argument("--json", action="store_true")
+    t_gen.set_defaults(func=cmd_tasks)
+    t_check = tasks_sub.add_parser("check", help="check splits and readiness of a generated JSONL")
+    t_check.add_argument("path")
+    t_check.add_argument("--json", action="store_true")
+    t_check.set_defaults(func=cmd_tasks)
 
     run = sub.add_parser("run", help="local shortcuts that answer a question in one screen")
     run_sub = run.add_subparsers(dest="run_command", required=True)

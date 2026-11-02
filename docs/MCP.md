@@ -24,6 +24,8 @@ Diagnostics go to **stderr**; stdout carries only JSON-RPC, one message per line
 | `train_int4` | INT4 LoRA training on a local HF directory, blocking | yes (new run dir) |
 | `train_merge_int4` | merge an INT4 adapter into fp16 shards | yes (new dir) |
 | `gguf_quantize` | quantize a local GGUF (Q4_K_M by default) | yes (new file) |
+| `train_plan` | validate a TrainSpec and report the trainer + preflight | no |
+| `eval_compare` | paired statistics over two stored benchmark runs | no |
 
 **There is no "run any command" tool.** Paths are validated against the configured model and data
 roots, so an agent cannot reach outside them; every write lands in a new directory under

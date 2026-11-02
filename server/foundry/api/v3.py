@@ -395,6 +395,107 @@ def training_playbook(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Spec-driven training: plan (no compute) and run (queued job)
+# ---------------------------------------------------------------------------
+
+class TrainSpecBody(BaseModel):
+    spec: dict
+
+
+def _train_spec_from(body: TrainSpecBody):
+    from ..train.spec import TrainSpec
+
+    try:
+        return TrainSpec.model_validate(body.spec)
+    except Exception as exc:  # noqa: BLE001 - the schema error is the answer
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_spec", "message": f"{type(exc).__name__}: {exc}"},
+        )
+
+
+def _trainer_for(spec):
+    from ..train.registry import get_trainer, load_builtin_trainers
+
+    load_builtin_trainers()
+    try:
+        return get_trainer(spec)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail={"code": "no_trainer", "message": str(exc)})
+
+
+def _plan_payload(state, spec, trainer) -> dict:
+    from ..train.base import TrainContext
+
+    ctx = TrainContext(
+        out_dir=state.settings.training_dir / "plan",
+        db=state.db,
+        settings=state.settings,
+    )
+    preflight = trainer.preflight(spec, ctx)
+    return {
+        "spec": spec.model_dump(mode="json"),
+        "spec_hash": spec.spec_hash,
+        "trainer": f"{trainer.method.value}/{trainer.backend.value}",
+        "preflight": preflight.to_public(),
+        "steps": spec.hyper.max_steps,
+    }
+
+
+@router.post("/training/plan")
+def training_plan(request: Request, body: TrainSpecBody):
+    """Validate a TrainSpec and report what would happen. Never trains, never reserves memory."""
+    state = _state(request)
+    spec = _train_spec_from(body)
+    return _plan_payload(state, spec, _trainer_for(spec))
+
+
+@router.post("/training/runs")
+def training_runs(request: Request, body: TrainSpecBody):
+    """Queue a spec-driven run. A blocked preflight is a 409 with the blockers, not a failed job."""
+    state = _state(request)
+    spec = _train_spec_from(body)
+    trainer = _trainer_for(spec)
+    plan = _plan_payload(state, spec, trainer)
+    if not plan["preflight"]["ok"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "preflight_blocked",
+                "message": "The preflight refused this spec; nothing was queued.",
+                "blockers": plan["preflight"]["blockers"],
+            },
+        )
+
+    output = state.settings.training_dir / f"spec_{int(time.time())}"
+
+    def job(ctx):
+        from ..train.base import TrainContext
+        from ..train.registry import get_trainer, load_builtin_trainers
+
+        load_builtin_trainers()
+        run_spec = _train_spec_from(body)
+        runner = get_trainer(run_spec)
+        train_ctx = TrainContext(
+            out_dir=output,
+            progress=lambda pct, message: ctx.progress(pct, message),
+            log=lambda message: ctx.log(message),
+            cancel=ctx.cancel_event,
+            db=state.db,
+            settings=state.settings,
+        )
+        result = runner.run(run_spec, train_ctx)
+        return {
+            "run_id": result.run_id,
+            "out_dir": str(output),
+            "manifest": result.manifest.model_dump(mode="json"),
+        }
+
+    job_id = state.runner.submit("training.spec", job, input_data={"spec_hash": spec.spec_hash}, heavy=True)
+    return {"job_id": job_id, "spec_hash": spec.spec_hash, "trainer": plan["trainer"]}
+
+
+# ---------------------------------------------------------------------------
 # Browser runtime (WebGPU / WASM models served from disk)
 # ---------------------------------------------------------------------------
 

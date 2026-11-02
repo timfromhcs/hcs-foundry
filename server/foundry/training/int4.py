@@ -956,6 +956,7 @@ def _train_int4(
         "target_modules": list(targets),
         "steps": step,
         "loss_first": round(losses[0], 6) if losses else None,
+        "losses": [round(value, 6) for value in losses],
         "loss_last": round(losses[-1], 6) if losses else None,
         "eval_history": eval_history,
         "best_eval_loss": round(float(best["loss"]), 6) if best["loss"] is not None else None,

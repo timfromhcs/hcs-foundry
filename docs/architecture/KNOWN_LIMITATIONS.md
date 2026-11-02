@@ -127,3 +127,11 @@ marked as untested.
 34. **The WASM budget is conservative on purpose.** A tab in this Chromium was granted
     1536 MiB by a bounded allocation probe, so models above 1.25 GB are refused rather than
     attempted; a larger model may work on another machine, but it is not promised.
+
+## Training and evaluation
+
+35. **Resume and cancellation are not conformance-checked in practice.** C5/C6 are implemented but
+    report `not_applicable`: the trainers have no resume path and the legacy manifests do not record
+    a cancellation status. They will pass once those exist, not before.
+36. **The task generators cover four families.** `code_synth` and `code_fix` (subprocess test
+    runners) are still open, so a coding-skill claim only rests on `toolcall` today.

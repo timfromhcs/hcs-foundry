@@ -111,6 +111,32 @@ TOOL_SPECS: list[dict] = [
         ),
     },
     {
+        "name": "train_plan",
+        "description": (
+            "Validate a TrainSpec and report the trainer plus preflight. Plans only: nothing is "
+            "trained and no memory is reserved."
+        ),
+        "inputSchema": _schema(
+            {"spec": {"type": "object", "description": "A TrainSpec document (spec_version 1)."}},
+            ["spec"],
+        ),
+    },
+    {
+        "name": "eval_compare",
+        "description": (
+            "Compare two stored benchmark runs case by case with paired statistics (McNemar / "
+            "clustered bootstrap). Returns the CI, the effect and the regressions."
+        ),
+        "inputSchema": _schema(
+            {
+                "baseline_run_id": {"type": "string"},
+                "candidate_run_id": {"type": "string"},
+                "target_delta": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.05},
+            },
+            ["baseline_run_id", "candidate_run_id"],
+        ),
+    },
+    {
         "name": "gguf_quantize",
         "description": "Quantize a local GGUF file (Q4_K_M by default) and return size and ratio.",
         "inputSchema": _schema(
@@ -291,6 +317,90 @@ class McpServer:
         out = self._within(str(args["output_dir"])) if args.get("output_dir") else adapter_dir.parent / "merged"
         result = merge_int4_adapter(store, adapter_dir, out)
         return {k: result[k] for k in ("output", "dtype", "shards", "size_bytes", "quantized_weights_merged")}
+
+    def _tool_train_plan(self, args: dict) -> dict:
+        from .train.base import TrainContext
+        from .train.registry import get_trainer, load_builtin_trainers
+        from .train.spec import TrainSpec
+
+        try:
+            spec = TrainSpec.model_validate(args["spec"])
+        except Exception as exc:  # noqa: BLE001 - the schema error is the answer
+            raise McpError(-32602, f"invalid spec: {type(exc).__name__}: {exc}")
+        load_builtin_trainers()
+        try:
+            trainer = get_trainer(spec)
+        except Exception as exc:  # noqa: BLE001
+            raise McpError(-32602, str(exc))
+        ctx = TrainContext(
+            out_dir=self.state.settings.training_dir / "mcp-plan",
+            db=self.state.db,
+            settings=self.state.settings,
+        )
+        preflight = trainer.preflight(spec, ctx)
+        return {
+            "spec_hash": spec.spec_hash,
+            "trainer": f"{trainer.method.value}/{trainer.backend.value}",
+            "preflight": preflight.to_public(),
+            "steps": spec.hyper.max_steps,
+        }
+
+    def _tool_eval_compare(self, args: dict) -> dict:
+        from .train.stats import paired_compare
+
+        baseline_id = str(args["baseline_run_id"])
+        candidate_id = str(args["candidate_run_id"])
+        rows = {
+            row["id"]: row
+            for row in self.state.db.query(
+                "SELECT * FROM benchmark_runs WHERE id IN (?, ?)", (baseline_id, candidate_id)
+            )
+        }
+        for run_id in (baseline_id, candidate_id):
+            if run_id not in rows:
+                raise McpError(-32602, f"benchmark run not found: {run_id}")
+        baseline, candidate = rows[baseline_id], rows[candidate_id]
+        baseline, candidate = dict(baseline), dict(candidate)
+        if (baseline["suite_id"], baseline["suite_version"]) != (
+            candidate["suite_id"],
+            candidate["suite_version"],
+        ):
+            raise McpError(
+                -32602,
+                "the runs come from different suites or versions; a paired comparison would be invalid",
+            )
+
+        def outcomes(run_id: str) -> dict[str, float]:
+            return {
+                row["case_id"]: 1.0 if row["status"] == "pass" else 0.0
+                for row in self.state.db.query(
+                    "SELECT case_id, status FROM benchmark_cases WHERE run_id=?", (run_id,)
+                )
+            }
+
+        base_cases = outcomes(baseline_id)
+        cand_cases = outcomes(candidate_id)
+        shared = sorted(case_id for case_id in base_cases if case_id in cand_cases)
+        if not shared:
+            raise McpError(-32602, "the two runs share no case ids; nothing can be paired")
+        base_items = [base_cases[case_id] for case_id in shared]
+        cand_items = [cand_cases[case_id] for case_id in shared]
+        target = float(args.get("target_delta", 0.05))
+        paired = paired_compare(cand_items, base_items, target_delta=target)
+        regressions = [case_id for case_id in shared if cand_cases[case_id] < base_cases[case_id]]
+        improvements = [case_id for case_id in shared if cand_cases[case_id] > base_cases[case_id]]
+        return {
+            "suite_id": baseline["suite_id"],
+            "suite_version": baseline["suite_version"],
+            "baseline_run": baseline_id,
+            "candidate_run": candidate_id,
+            "comparability": candidate.get("comparability"),
+            "n": paired.n,
+            "paired": paired.to_public(),
+            "improvements": len(improvements),
+            "regressions": len(regressions),
+            "regression_cases": regressions[:50],
+        }
 
     def _tool_gguf_quantize(self, args: dict) -> dict:
         from .gguf_tools import discover, quantize_gguf

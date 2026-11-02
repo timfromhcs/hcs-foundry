@@ -2,6 +2,54 @@
 
 All notable changes to HCS Foundry.
 
+## [7.3.0] — 2026-11-02
+
+Hardening release: the conformance matrix can now fail a trainer, specs are reachable over HTTP and
+MCP, and there is verifiable task data to train and measure on.
+
+### Added
+
+- **Conformance checks C3–C6, C9–C11** (`foundry/train/conformance.py`) and `run_matrix()`, which
+  runs one trainer once and applies every check that can be judged from that run. Checks that need a
+  second run, a resume or a cancel report `not_applicable` with the reason — never a silent pass.
+  `foundry train doctor --model … --dataset …` now prints the full matrix.
+  - C3 learning needs ≥ 3 loss points; a one-step run is refused, not passed.
+  - C4 repeatability prints the observed `max |LoRA-B|` delta against a stated tolerance.
+  - C9 reloads the fp32 LoRA adapter and runs a finite forward pass.
+  - C10 refuses a `completed` run whose adapter never moved.
+  - C11 refuses a run whose estimate cannot fit the wall-clock budget.
+- **`POST /api/v1/training/plan`** (validate a spec, return trainer + preflight, no compute) and
+  **`POST /api/v1/training/runs`** (queue the same spec; a blocked preflight is a 409 with the
+  blockers, not a failed job).
+- **MCP `train_plan` and `eval_compare`** — 11 typed tools. `eval_compare` pairs two stored
+  benchmark runs by case id, refuses different suites/versions, and returns the paired CI plus the
+  regression case list.
+- **Verifiable task generators** (`foundry/tasks/generators.py`, `docs/TASK_GENERATORS.md`):
+  `arith`, `fmt`, `extract`, `toolcall` with deterministic verifiers, a 60/20/20 **template-ranked**
+  split (a test template cannot appear in training), decontamination with a drop count, and a
+  readiness gate (`train ≥ 60`, `dev ≥ 20`, `test ≥ 20`, no template leak).
+  CLI: `foundry tasks generate|check`.
+
+### Changed
+
+- Legacy run manifests now record the full loss trajectory (`losses`), not only the first and last
+  point. Without it C3 could only ever say "not applicable" on a real run.
+
+### Verified
+
+- 309 backend tests (40 new), 17 frontend, 10 E2E, build green.
+- `foundry tasks generate --family all --seed 1 --per-template 10` → 100 items, splits 60/20/20,
+  readiness ok; `tasks check` on the written JSONL reproduces it.
+
+### Not claimed
+
+- **No quality improvement.** S5 (the flywheel measurement) has not run; no base-vs-candidate
+  comparison exists.
+- **C5 (resume) and C6 (cancel) are `not_applicable`** for the current trainers: they do not expose
+  a resume path and the legacy manifests do not record a cancellation status.
+- The plan's remaining phases S4 (`rft`), S5 (measurement), S6 (engine/quant gates) and S7 (release)
+  are open in `docs/plan/V8_STABLE_PLAN.md` with their gates.
+
 ## [7.2.0] — 2026-11-02
 
 Browser runtime release: a small model can now run **inside the tab** (WebGPU/WASM via
